@@ -1,4 +1,4 @@
-# veriflow-rag
+# VeriFlow RAG
 
 ## Лицензия
 

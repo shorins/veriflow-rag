@@ -1,0 +1,1 @@
+# Точка входа (Chainlit или FastAPI)
