@@ -7,20 +7,27 @@ services:
       - '8080'
       - --scheme
       - http
-    image: semitechnologies/weaviate:1.24.1
+    image: cr.weaviate.io/semitechnologies/weaviate:1.35.2
     ports:
-      - 8080:8080
-      - 50051:50051
+      - 8080:8080 # HTTP API
+      - 50051:50051 # gRPC (быстрый протокол для LlamaIndex)
     volumes:
       - weaviate_data:/var/lib/weaviate
+    restart: on-failure:0
     environment:
+      # Настройки для Hybrid Search и производительности
       QUERY_DEFAULTS_LIMIT: 25
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
       PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
-      # Важно: Мы отключаем встроенные векторизаторы, 
-      # так как будем векторизовать через LlamaIndex (локально или API)
-      DEFAULT_VECTORIZER_MODULE: 'none' 
-      ENABLE_MODULES: 'text2vec-contextionary' # или вообще пусто, если 'none'
+
+      # ВАЖНО: Отключаем встроенные векторизаторы Weaviate.
+      # Мы будем считать вектора сами в Python скрипте (на M1 GPU),
+      # так мы контролируем процесс на 100%.
+      DEFAULT_VECTORIZER_MODULE: 'none'
+      ENABLE_MODULES: '' # Никаких лишних модулей, только ядро
+
+      # Разрешаем создание бэкапов (полезно для диплома)
+      ENABLE_API_BASED_MODULES: 'true'
       CLUSTER_HOSTNAME: 'node1'
       
 volumes:
