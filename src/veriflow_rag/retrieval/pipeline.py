@@ -24,6 +24,21 @@ STOPWORDS = {
     "the", "a", "an", "of", "to", "is", "are",
 }
 
+COMMON_SUFFIXES = [
+    "ирования", "ированиям", "ированиях", "ениями", "ениями", "остью", "ности", "ционный",
+    "ционная", "ционные", "ционного", "ционном", "альными", "ального", "альному",
+    "иями", "иями", "иями", "иями", "ами", "ями", "ого", "ему", "ыми", "ими",
+    "ая", "яя", "ое", "ее", "ые", "ие", "ой", "ий", "ый", "ому", "ах", "ях",
+    "ам", "ям", "ов", "ев", "ом", "ем", "а", "я", "ы", "и", "е", "у", "ю",
+]
+
+
+@dataclass
+class QueryProfile:
+    intent: str
+    domain: str
+    has_numeric_anchor: bool
+
 
 @dataclass
 class ChunkRecord:
@@ -34,7 +49,9 @@ class ChunkRecord:
     parser_name: str
     doc_title: str
     section_title: str
+    heading_path: str
     prev_heading: str | None
+    block_type: str
     page_span: str
     raw_text: str
     parent_text: str
@@ -150,18 +167,65 @@ class RetrieverService:
         return "\n\n".join(item.raw_text for item in siblings[start:end])
 
     @staticmethod
+    def _normalize_token(token: str) -> str:
+        token = token.lower()
+        for suffix in COMMON_SUFFIXES:
+            if len(token) > 6 and token.endswith(suffix):
+                return token[: -len(suffix)]
+        return token
+
+    @staticmethod
     def _tokenize(text: str) -> list[str]:
         return [
-            token for token in re.findall(r"[a-zA-Zа-яА-Я0-9/]+", text.lower())
+            RetrieverService._normalize_token(token)
+            for token in re.findall(r"[a-zA-Zа-яА-Я0-9/]+", text.lower())
             if token not in STOPWORDS and len(token) > 1
         ]
 
-    def _heading_boost(self, query: str, record: ChunkRecord) -> float:
+    def _classify_query(self, query: str) -> QueryProfile:
+        normalized = query.lower()
+
+        comparison_markers = ["разница", "отлич", "сравн", "versus", "vs", "difference"]
+        procedure_markers = ["как", "порядок", "этап", "шаг", "процед", "алгоритм", "workflow"]
+        enumeration_markers = ["какие", "перечис", "список", "виды", "типы", "элементы", "симптомы"]
+        definition_markers = ["что такое", "что представляет собой", "определение", "what is", "define"]
+        definition_list_markers = ["что определяет", "что включает", "что содержит", "что предусматривает"]
+
+        if any(marker in normalized for marker in definition_markers):
+            intent = "definition"
+        elif any(marker in normalized for marker in comparison_markers):
+            intent = "comparison"
+        elif any(marker in normalized for marker in definition_list_markers):
+            intent = "enumeration"
+        elif any(marker in normalized for marker in enumeration_markers):
+            intent = "enumeration"
+        elif any(marker in normalized for marker in procedure_markers):
+            intent = "procedure"
+        else:
+            intent = "factoid"
+
+        legal_markers = ["статья", "кодекс", "закон", "право", "договор", "норма", "court", "regulation"]
+        medical_markers = [
+            "симптом", "лечение", "диагноз", "диагности", "пациент", "терап", "синдром",
+            "медици", "guideline", "dosage",
+        ]
+
+        if any(marker in normalized for marker in legal_markers):
+            domain = "legal"
+        elif any(marker in normalized for marker in medical_markers):
+            domain = "medical"
+        else:
+            domain = "general"
+
+        has_numeric_anchor = bool(re.search(r"\d", normalized))
+        return QueryProfile(intent=intent, domain=domain, has_numeric_anchor=has_numeric_anchor)
+
+    def _heading_overlap_boost(self, query: str, record: ChunkRecord) -> float:
         query_tokens = set(self._tokenize(query))
         if not query_tokens:
             return 0.0
 
-        heading_text = f"{record.section_title} {record.prev_heading or ''}"
+        heading_text = f"{record.heading_path} {record.section_title} {record.prev_heading or ''}"
         heading_tokens = set(self._tokenize(heading_text))
         if not heading_tokens:
             return 0.0
@@ -171,21 +235,63 @@ class RetrieverService:
             return 0.0
 
         overlap_ratio = len(overlap) / max(1, min(len(query_tokens), len(heading_tokens)))
-        phrase_bonus = 0.0
-        normalized_query = query.lower()
-        normalized_heading = heading_text.lower()
+        bonus = 0.2 if len(overlap) >= 2 else 0.0
+        return overlap_ratio * 0.45 + bonus
 
-        if record.section_title and record.section_title.lower() in normalized_query:
-            phrase_bonus += 0.25
-        if "основные процессы" in normalized_query and "основные процессы" in normalized_heading:
-            phrase_bonus += 1.0
-        if "iso/iec 12207" in normalized_query and "iso/iec 12207" in normalized_heading:
-            phrase_bonus += 0.15
-        if "какие" in normalized_query and "перечислены" in normalized_query:
-            if "основные процессы" in normalized_heading and "- процесс" in record.raw_text.lower():
-                phrase_bonus += 0.75
+    def _intent_block_boost(self, profile: QueryProfile, record: ChunkRecord) -> float:
+        mapping = {
+            "definition": {
+                "definition": 0.9,
+                "paragraph": 0.2,
+                "table": 0.1,
+            },
+            "enumeration": {
+                "list": 0.9,
+                "table": 0.8,
+                "procedure": 0.45,
+                "guideline": 0.35,
+            },
+            "comparison": {
+                "comparison": 0.9,
+                "table": 0.65,
+                "paragraph": 0.2,
+            },
+            "procedure": {
+                "procedure": 0.9,
+                "guideline": 0.7,
+                "list": 0.45,
+            },
+            "factoid": {
+                "norm": 0.55,
+                "table": 0.45,
+                "paragraph": 0.25,
+                "definition": 0.2,
+            },
+        }
+        return mapping.get(profile.intent, {}).get(record.block_type, 0.0)
 
-        return overlap_ratio * 0.35 + phrase_bonus
+    def _domain_block_boost(self, profile: QueryProfile, record: ChunkRecord) -> float:
+        if profile.domain == "legal":
+            mapping = {"norm": 0.8, "table": 0.25, "paragraph": 0.1}
+            return mapping.get(record.block_type, 0.0)
+        if profile.domain == "medical":
+            mapping = {"guideline": 0.75, "table": 0.55, "list": 0.45, "procedure": 0.25}
+            return mapping.get(record.block_type, 0.0)
+        return 0.0
+
+    def _numeric_anchor_boost(self, profile: QueryProfile, record: ChunkRecord) -> float:
+        if not profile.has_numeric_anchor:
+            return 0.0
+        text = f"{record.heading_path} {record.raw_text}".lower()
+        return 0.25 if re.search(r"\d", text) else 0.0
+
+    def _structural_boost(self, query: str, profile: QueryProfile, record: ChunkRecord) -> float:
+        return (
+            self._heading_overlap_boost(query, record)
+            + self._intent_block_boost(profile, record)
+            + self._domain_block_boost(profile, record)
+            + self._numeric_anchor_boost(profile, record)
+        )
 
     @staticmethod
     def _confidence_label(rank: int, rerank_score: float | None) -> str:
@@ -232,6 +338,7 @@ class RetrieverService:
                     for rank, node in enumerate(candidates, start=1)
                 ]
 
+            query_profile = self._classify_query(query)
             reranked = self.reranker.rerank(query, candidates, self.config.rerank_top_n)
             grouped: dict[str, dict] = {}
             for node in reranked:
@@ -246,6 +353,7 @@ class RetrieverService:
                         "record": record,
                         "retrieval_score": node.node.metadata.get("retrieval_score"),
                         "rerank_score": node.score,
+                        "best_child_score": node.score,
                         "best_rank": len(grouped) + 1,
                     },
                 )
@@ -259,18 +367,19 @@ class RetrieverService:
                     bucket["rerank_score"] if bucket["rerank_score"] is not None else float("-inf"),
                     node.score if node.score is not None else float("-inf"),
                 )
-                bucket["heading_boost"] = max(
-                    bucket.get("heading_boost", float("-inf")),
-                    self._heading_boost(query, record),
+                bucket["structural_boost"] = max(
+                    bucket.get("structural_boost", float("-inf")),
+                    self._structural_boost(query, query_profile, record),
                 )
-                if record.child_position < bucket["record"].child_position:
+                if (node.score or float("-inf")) > (bucket.get("best_child_score") or float("-inf")):
                     bucket["record"] = record
+                    bucket["best_child_score"] = node.score
 
             ordered = sorted(
                 grouped.values(),
                 key=lambda item: (
                     (item["rerank_score"] if item["rerank_score"] is not None else float("-inf"))
-                    + item.get("heading_boost", 0.0)
+                    + item.get("structural_boost", 0.0)
                 ),
                 reverse=True,
             )

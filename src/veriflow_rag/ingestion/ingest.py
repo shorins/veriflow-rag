@@ -37,7 +37,9 @@ class ChunkManifestRecord:
     parser_name: str
     doc_title: str
     section_title: str
+    heading_path: str
     prev_heading: str | None
+    block_type: str
     page_span: str
     raw_text: str
     parent_text: str
@@ -50,6 +52,81 @@ def normalize_text(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
     return text.strip()
+
+
+def infer_block_type(text: str, section_title: str, heading_path: str) -> str:
+    normalized = text.lower()
+    normalized_heading = f"{section_title} {heading_path}".lower()
+    early_text = normalized[:400]
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    bullet_lines = [
+        line for line in lines
+        if line.startswith(("-", "*", "•")) or re.match(r"^\d+[.)]\s+", line)
+    ]
+    has_table = text.count("|") >= 4 or "\t" in text
+
+    definition_markers = [
+        "представляет собой",
+        "определяется как",
+        "понимается как",
+        "называется",
+        "рассматривается как",
+        "это ",
+        "is defined as",
+    ]
+    comparison_markers = [
+        "в отличие",
+        "отличается от",
+        "сравнение",
+        "различие",
+        "versus",
+        "vs",
+    ]
+    procedure_markers = [
+        "этап",
+        "шаг",
+        "алгоритм",
+        "порядок",
+        "workflow",
+        "pipeline",
+        "последовательность действий",
+    ]
+    norm_markers = [
+        "статья",
+        "пункт",
+        "часть",
+        "кодекс",
+        "закон",
+        "норм",
+        "регламент",
+    ]
+    guideline_markers = [
+        "рекомендац",
+        "следует",
+        "необходимо",
+        "показан",
+        "guideline",
+        "симптом",
+        "лечение",
+        "диагност",
+    ]
+
+    if has_table:
+        return "table"
+    if any(marker in normalized_heading or marker in normalized_heading for marker in comparison_markers):
+        return "comparison"
+    if any(marker in normalized_heading or marker in early_text for marker in definition_markers):
+        return "definition"
+    if any(marker in normalized_heading or marker in normalized_heading for marker in norm_markers):
+        return "norm"
+    if any(marker in normalized_heading or marker in normalized_heading for marker in guideline_markers):
+        return "guideline"
+    if any(marker in normalized_heading or marker in early_text for marker in procedure_markers):
+        return "procedure"
+    if len(bullet_lines) >= 3:
+        return "list"
+    return "paragraph"
 
 
 def build_embed_model(config: AppConfig) -> HuggingFaceEmbedding:
@@ -136,6 +213,7 @@ def split_markdown_into_sections(document: Document) -> list[Document]:
     current_heading = doc_title
     previous_heading: str | None = None
     current_lines: list[str] = []
+    heading_stack: list[str] = [doc_title]
 
     def flush_section() -> None:
         nonlocal current_lines, previous_heading
@@ -144,6 +222,13 @@ def split_markdown_into_sections(document: Document) -> list[Document]:
             current_lines = []
             return
 
+        heading_path = " > ".join(heading_stack)
+        block_type = infer_block_type(
+            text=body,
+            section_title=current_heading,
+            heading_path=heading_path,
+        )
+
         sections.append(
             Document(
                 text=body,
@@ -151,7 +236,9 @@ def split_markdown_into_sections(document: Document) -> list[Document]:
                     **document.metadata,
                     "doc_title": doc_title,
                     "section_title": current_heading,
+                    "heading_path": heading_path,
                     "prev_heading": previous_heading,
+                    "block_type": block_type,
                     "page_span": "unknown",
                 },
             )
@@ -164,6 +251,9 @@ def split_markdown_into_sections(document: Document) -> list[Document]:
             flush_section()
             previous_heading = current_heading
             current_heading = heading_match.group("title").strip()
+            level = len(heading_match.group(1))
+            heading_stack = heading_stack[:level - 1]
+            heading_stack.append(current_heading)
             current_lines.append(line)
             continue
         current_lines.append(line)
@@ -175,7 +265,9 @@ def split_markdown_into_sections(document: Document) -> list[Document]:
 def contextualize_child_text(metadata: dict[str, str], raw_text: str) -> str:
     prefix = [
         f"Document: {metadata.get('doc_title', metadata.get('file_name', 'Unknown document'))}",
+        f"Heading path: {metadata.get('heading_path', metadata.get('section_title', 'Unknown heading'))}",
         f"Section: {metadata.get('section_title', 'Unknown section')}",
+        f"Block type: {metadata.get('block_type', 'paragraph')}",
     ]
     prev_heading = metadata.get("prev_heading")
     if prev_heading:
@@ -243,7 +335,9 @@ def build_baseline_nodes(
                         parser_name=section_doc.metadata["parser_name"],
                         doc_title=section_doc.metadata["doc_title"],
                         section_title=section_doc.metadata["section_title"],
+                        heading_path=section_doc.metadata["heading_path"],
                         prev_heading=section_doc.metadata.get("prev_heading"),
+                        block_type=section_doc.metadata["block_type"],
                         page_span=section_doc.metadata.get("page_span", "unknown"),
                         raw_text=raw_text,
                         parent_text=parent_text,
