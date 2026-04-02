@@ -34,6 +34,7 @@ class AppConfig(BaseSettings):
     embed_model_name: str = "BAAI/bge-m3"
     reranker_model_name: str = "BAAI/bge-reranker-v2-m3"
     embed_device: str = Field(default_factory=_detect_torch_device)
+    hf_local_files_only: bool = False
 
     child_chunk_size: int = 320
     child_chunk_overlap: int = 50
@@ -47,6 +48,17 @@ class AppConfig(BaseSettings):
     use_docling_fallback: bool = True
     use_legacy_baseline: bool = True
 
+    lmstudio_base_url: str = "http://127.0.0.1:1234"
+    lmstudio_api_key: str = "lm-studio"
+    lmstudio_api_mode: str = "auto"
+    synthesis_model_name: str = "qwen/qwen3.5-9b"
+    synthesis_temperature: float = 0.0
+    synthesis_max_tokens: int = 700
+    synthesis_top_evidence_k: int = 4
+    synthesis_min_confident_evidence: int = 2
+    synthesis_timeout_seconds: int = 60
+    synthesis_max_evidence_chars: int = 1200
+
     @property
     def manifest_path(self) -> Path:
         return self.artifact_dir / "baseline_manifest.json"
@@ -58,6 +70,14 @@ class AppConfig(BaseSettings):
     @property
     def benchmark_json_path(self) -> Path:
         return self.report_dir / "retrieval_benchmark.json"
+
+    @property
+    def synthesis_benchmark_report_path(self) -> Path:
+        return self.report_dir / "synthesis_benchmark.md"
+
+    @property
+    def synthesis_benchmark_json_path(self) -> Path:
+        return self.report_dir / "synthesis_benchmark.json"
 
     def ensure_runtime_dirs(self) -> None:
         self.artifact_dir.mkdir(parents=True, exist_ok=True)

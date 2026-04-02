@@ -1,0 +1,236 @@
+from __future__ import annotations
+
+import json
+
+from pydantic import ValidationError
+
+from veriflow_rag.core.config import AppConfig, get_config
+from veriflow_rag.retrieval.pipeline import EvidenceBlock, build_retriever
+from veriflow_rag.synthesis.client import LMStudioChatClient
+from veriflow_rag.synthesis.models import (
+    Citation,
+    PreparedEvidence,
+    RawSynthesizedAnswer,
+    SynthesizedAnswer,
+    SynthesisResultBundle,
+)
+from veriflow_rag.synthesis.prompts import load_prompt_artifacts, render_user_prompt
+
+
+class AnswerSynthesisService:
+    def __init__(
+        self,
+        config: AppConfig,
+        client: LMStudioChatClient | None = None,
+    ) -> None:
+        self.config = config
+        self.client = client or LMStudioChatClient(config)
+        self.prompt_artifacts = load_prompt_artifacts()
+
+    @staticmethod
+    def _select_evidence(blocks: list[EvidenceBlock], top_k: int) -> list[EvidenceBlock]:
+        preferred = [block for block in blocks if block.confidence_label in {"high", "medium"}]
+        fallback = [block for block in blocks if block.confidence_label not in {"high", "medium"}]
+        ordered = preferred + fallback
+        return ordered[:top_k]
+
+    @staticmethod
+    def _classify_query_intent(query: str) -> str:
+        normalized = query.lower()
+        if any(marker in normalized for marker in ("что такое", "что представляет собой", "определение", "what is", "define")):
+            return "definition"
+        if any(marker in normalized for marker in ("какие", "перечис", "список", "виды", "типы", "элементы")):
+            return "enumeration"
+        if any(marker in normalized for marker in ("разница", "отлич", "сравн", "difference", "vs", "versus")):
+            return "comparison"
+        if any(marker in normalized for marker in ("как", "порядок", "этап", "шаг", "процед", "алгоритм", "workflow")):
+            return "procedure"
+        return "factoid"
+
+    def _prepare_evidence(self, blocks: list[EvidenceBlock]) -> list[PreparedEvidence]:
+        selected = self._select_evidence(blocks, self.config.synthesis_top_evidence_k)
+        prepared: list[PreparedEvidence] = []
+        for index, block in enumerate(selected, start=1):
+            text = block.expanded_text.strip()
+            if len(text) > self.config.synthesis_max_evidence_chars:
+                text = text[: self.config.synthesis_max_evidence_chars].rstrip() + "..."
+            prepared.append(
+                PreparedEvidence(
+                    evidence_id=f"ev_{index}",
+                    block=block,
+                    prompt_text=(
+                        f"<evidence_item id=\"ev_{index}\">\n"
+                        f"<metadata>\n"
+                        f"file_name: {block.file_name}\n"
+                        f"section_title: {block.section_title}\n"
+                        f"page_span: {block.page_span}\n"
+                        f"confidence: {block.confidence_label}\n"
+                        f"</metadata>\n"
+                        f"<content>\n{text}\n</content>\n"
+                        f"</evidence_item>"
+                    ),
+                )
+            )
+        return prepared
+
+    def _has_sufficient_context(self, query: str, prepared: list[PreparedEvidence]) -> bool:
+        confident = sum(
+            1 for item in prepared if item.block.confidence_label in {"high", "medium"}
+        )
+        high_confident = any(item.block.confidence_label == "high" for item in prepared)
+        intent = self._classify_query_intent(query)
+
+        if intent in {"definition", "factoid"}:
+            return confident >= 1 and high_confident
+
+        return confident >= self.config.synthesis_min_confident_evidence
+
+    def _insufficient_result(
+        self,
+        *,
+        reason: str,
+        prepared: list[PreparedEvidence],
+    ) -> SynthesizedAnswer:
+        citations = [
+            Citation(
+                evidence_id=item.evidence_id,
+                file_name=item.block.file_name,
+                section_title=item.block.section_title,
+                support=item.block.expanded_text[:220].strip(),
+            )
+            for item in prepared[:1]
+        ]
+        return SynthesizedAnswer(
+            answer="Недостаточно подтвержденного контекста, чтобы дать надежный ответ только по найденным фрагментам.",
+            citations=citations,
+            used_evidence_ids=[item.evidence_id for item in prepared[:1]],
+            insufficient_context=True,
+            omitted_points=[reason],
+            model_name=self.config.synthesis_model_name,
+            prompt_version=self.prompt_artifacts.version,
+        )
+
+    @staticmethod
+    def _validate_ids(raw: RawSynthesizedAnswer, prepared: list[PreparedEvidence]) -> None:
+        known_ids = {item.evidence_id for item in prepared}
+        unknown_used = set(raw.used_evidence_ids) - known_ids
+        if unknown_used:
+            raise ValueError(f"Unknown used_evidence_ids: {sorted(unknown_used)}")
+
+        unknown_cited = {citation.evidence_id for citation in raw.citations} - known_ids
+        if unknown_cited:
+            raise ValueError(f"Unknown citation evidence_ids: {sorted(unknown_cited)}")
+
+    def _normalize_result(
+        self,
+        raw: RawSynthesizedAnswer,
+        prepared: list[PreparedEvidence],
+    ) -> SynthesizedAnswer:
+        self._validate_ids(raw, prepared)
+        evidence_map = {item.evidence_id: item for item in prepared}
+
+        citations: list[Citation] = []
+        for citation in raw.citations:
+            item = evidence_map[citation.evidence_id]
+            citations.append(
+                Citation(
+                    evidence_id=citation.evidence_id,
+                    file_name=item.block.file_name,
+                    section_title=item.block.section_title,
+                    support=citation.support.strip(),
+                )
+            )
+
+        return SynthesizedAnswer(
+            answer=raw.answer.strip(),
+            citations=citations,
+            used_evidence_ids=raw.used_evidence_ids,
+            insufficient_context=raw.insufficient_context,
+            omitted_points=raw.omitted_points,
+            model_name=self.config.synthesis_model_name,
+            prompt_version=self.prompt_artifacts.version,
+        )
+
+    def _invoke_model(self, query: str, prepared: list[PreparedEvidence], *, retry: bool = False) -> RawSynthesizedAnswer:
+        evidence_xml = "\n\n".join(item.prompt_text for item in prepared)
+        schema_json = json.dumps(
+            self.prompt_artifacts.output_schema,
+            ensure_ascii=False,
+            indent=2,
+        )
+        user_prompt = render_user_prompt(
+            self.prompt_artifacts.user_template
+            + (
+                "\n\n<format_reminder>\nReturn only valid JSON that strictly follows the schema.\n</format_reminder>"
+                if retry
+                else ""
+            ),
+            query=query,
+            evidence_xml=evidence_xml,
+            schema_json=schema_json,
+        )
+        raw_text = self.client.chat_json(
+            model_name=self.config.synthesis_model_name,
+            system_prompt=self.prompt_artifacts.system_prompt,
+            user_prompt=user_prompt,
+            output_schema=self.prompt_artifacts.output_schema,
+            temperature=self.config.synthesis_temperature,
+            max_tokens=self.config.synthesis_max_tokens,
+            timeout_seconds=self.config.synthesis_timeout_seconds,
+        )
+        payload = json.loads(raw_text)
+        return RawSynthesizedAnswer.model_validate(payload)
+
+    def synthesize_answer(
+        self,
+        query: str,
+        evidence_blocks: list[EvidenceBlock],
+    ) -> SynthesisResultBundle:
+        prepared = self._prepare_evidence(evidence_blocks)
+        if not prepared or not self._has_sufficient_context(query, prepared):
+            return SynthesisResultBundle(
+                query=query,
+                evidence_blocks=prepared,
+                synthesized_answer=self._insufficient_result(
+                    reason="retrieval вернул слишком мало уверенных evidence blocks",
+                    prepared=prepared,
+                ),
+            )
+
+        last_error: Exception | None = None
+        for retry in (False, True):
+            try:
+                raw = self._invoke_model(query, prepared, retry=retry)
+                normalized = self._normalize_result(raw, prepared)
+                if not normalized.answer.strip() and not normalized.insufficient_context:
+                    raise ValueError("Model returned an empty answer without insufficient_context=true.")
+                return SynthesisResultBundle(
+                    query=query,
+                    evidence_blocks=prepared,
+                    synthesized_answer=normalized,
+                )
+            except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+                last_error = exc
+
+        return SynthesisResultBundle(
+            query=query,
+            evidence_blocks=prepared,
+            synthesized_answer=SynthesizedAnswer(
+                answer="Недостаточно надежного структурированного вывода от локальной модели, чтобы вернуть честный ответ.",
+                citations=[],
+                used_evidence_ids=[],
+                insufficient_context=True,
+                omitted_points=[f"Structured output validation failed: {last_error}"],
+                model_name=self.config.synthesis_model_name,
+                prompt_version=self.prompt_artifacts.version,
+            ),
+        )
+
+    def run_query(self, query: str) -> SynthesisResultBundle:
+        retriever = build_retriever(use_legacy=False)
+        evidence_blocks = retriever.search(query)
+        return self.synthesize_answer(query, evidence_blocks)
+
+
+def build_synthesis_service() -> AnswerSynthesisService:
+    return AnswerSynthesisService(get_config())

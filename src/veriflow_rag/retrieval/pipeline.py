@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections import defaultdict
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -75,7 +77,7 @@ class EvidenceBlock:
 
 
 class SentenceCrossEncoderReranker:
-    def __init__(self, model_name: str, device: str) -> None:
+    def __init__(self, model_name: str, device: str, local_files_only: bool = False) -> None:
         preferred_devices = [device]
         if device != "cpu":
             preferred_devices.append("cpu")
@@ -83,7 +85,12 @@ class SentenceCrossEncoderReranker:
         last_error: Exception | None = None
         for candidate in preferred_devices:
             try:
-                self.model = CrossEncoder(model_name, device=candidate, trust_remote_code=True)
+                self.model = CrossEncoder(
+                    model_name,
+                    device=candidate,
+                    trust_remote_code=True,
+                    local_files_only=local_files_only,
+                )
                 return
             except Exception as exc:  # pragma: no cover - hardware specific
                 last_error = exc
@@ -121,16 +128,65 @@ class RetrieverService:
         for records in self.records_by_parent.values():
             records.sort(key=lambda item: item.child_position)
 
-        self.reranker = None if use_legacy else SentenceCrossEncoderReranker(
-            model_name=config.reranker_model_name,
-            device=config.embed_device,
-        )
+        self.reranker = None if use_legacy else self._build_reranker()
         self._configure_llama_index()
+
+    def _build_reranker(self) -> SentenceCrossEncoderReranker:
+        model_name = self._resolve_model_source(self.config.reranker_model_name)
+        with self._huggingface_mode():
+            return SentenceCrossEncoderReranker(
+                model_name=model_name,
+                device=self.config.embed_device,
+                local_files_only=self.config.hf_local_files_only,
+            )
+
+    @contextmanager
+    def _huggingface_mode(self):
+        if not self.config.hf_local_files_only:
+            yield
+            return
+
+        previous = {
+            "HF_HUB_OFFLINE": os.environ.get("HF_HUB_OFFLINE"),
+            "TRANSFORMERS_OFFLINE": os.environ.get("TRANSFORMERS_OFFLINE"),
+        }
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+        try:
+            yield
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
     @staticmethod
     def _load_manifest(path: Path) -> list[ChunkRecord]:
         payload = json.loads(path.read_text(encoding="utf-8"))
         return [ChunkRecord(**item) for item in payload]
+
+    def _resolve_model_source(self, model_name: str) -> str:
+        if not self.config.hf_local_files_only:
+            return model_name
+
+        if Path(model_name).exists():
+            return str(Path(model_name))
+
+        cache_root = Path.home() / ".cache" / "huggingface" / "hub"
+        repo_dir = cache_root / f"models--{model_name.replace('/', '--')}"
+        snapshots_dir = repo_dir / "snapshots"
+        if not snapshots_dir.exists():
+            raise RuntimeError(
+                f"Local-only mode is enabled, but model '{model_name}' is not cached in {snapshots_dir}."
+            )
+
+        snapshot_paths = sorted(path for path in snapshots_dir.iterdir() if path.is_dir())
+        if not snapshot_paths:
+            raise RuntimeError(
+                f"Local-only mode is enabled, but no snapshots were found for model '{model_name}'."
+            )
+        return str(snapshot_paths[-1])
 
     def _configure_llama_index(self) -> None:
         preferred_devices = [self.config.embed_device]
@@ -140,11 +196,14 @@ class RetrieverService:
         last_error: Exception | None = None
         for device in preferred_devices:
             try:
-                Settings.embed_model = HuggingFaceEmbedding(
-                    model_name=self.config.embed_model_name,
-                    device=device,
-                    trust_remote_code=True,
-                )
+                model_name = self._resolve_model_source(self.config.embed_model_name)
+                with self._huggingface_mode():
+                    Settings.embed_model = HuggingFaceEmbedding(
+                        model_name=model_name,
+                        device=device,
+                        trust_remote_code=True,
+                        local_files_only=self.config.hf_local_files_only,
+                    )
                 Settings.llm = None
                 return
             except Exception as exc:  # pragma: no cover - hardware specific

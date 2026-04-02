@@ -1,0 +1,58 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "answer",
+    "citations",
+    "used_evidence_ids",
+    "insufficient_context",
+    "omitted_points"
+  ],
+  "properties": {
+    "answer": {
+      "type": "string"
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "file_name",
+          "section_title",
+          "support"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "section_title": {
+            "type": "string"
+          },
+          "support": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "used_evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "insufficient_context": {
+      "type": "boolean"
+    },
+    "omitted_points": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
