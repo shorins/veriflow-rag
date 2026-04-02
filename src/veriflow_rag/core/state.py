@@ -1,6 +1,7 @@
 # Типизация состояния графа (State)
 
-from typing import List, TypedDict, Optional
+from operator import add
+from typing import Annotated, List, Optional, TypedDict
 
 class TrustRagState(TypedDict):
     question: str                # Исходный вопрос пользователя

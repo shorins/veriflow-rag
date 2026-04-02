@@ -1,64 +1,33 @@
-import weaviate
-from llama_index.core import VectorStoreIndex, StorageContext, Settings
-from llama_index.vector_stores.weaviate import WeaviateVectorStore
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.core.vector_stores.types import VectorStoreQueryMode
+from __future__ import annotations
 
-# --- КОНФИГУРАЦИЯ ---
-# Используем те же настройки, что и при загрузке, чтобы вектора "совпадали"
-print("⏳ Загрузка модели для поиска...")
-embed_model = HuggingFaceEmbedding(
-    model_name="BAAI/bge-m3",
-    device="cpu", # Для одиночного запроса CPU более чем достаточно и надежно
-    trust_remote_code=True
-)
-Settings.embed_model = embed_model
-Settings.llm = None # Нам пока не нужен генератор, только поиск
+import argparse
 
-def test_hybrid_search(query_text: str):
-    print(f"\n🔎 Тестовый запрос: '{query_text}'")
-    
-    # 1. Подключаемся к базе
-    client = weaviate.connect_to_local()
-    
-    try:
-        # 2. Загружаем существующий индекс
-        vector_store = WeaviateVectorStore(
-            weaviate_client=client, 
-            index_name="VeriFlowDocs" 
-        )
-        # Мы НЕ используем from_documents, мы используем from_vector_store
-        index = VectorStoreIndex.from_vector_store(
-            vector_store=vector_store
-        )
+from veriflow_rag.retrieval.pipeline import build_retriever
 
-        # 3. Создаем движок поиска (Retriever) с гибридным режимом
-        # alpha=0.5 означает баланс: 50% важности вектору (смысл), 50% ключевым словам (BM25)
-        retriever = index.as_retriever(
-            vector_store_query_mode=VectorStoreQueryMode.HYBRID,
-            alpha=0.5, 
-            similarity_top_k=3 # Вернуть 3 самых релевантных куска
-        )
 
-        # 4. Ищем
-        results = retriever.retrieve(query_text)
+def test_hybrid_search(query_text: str, use_legacy: bool = False) -> None:
+    retriever = build_retriever(use_legacy=use_legacy)
+    results = retriever.search(query_text)
+    if not results:
+        print("❌ No retrieval results.")
+        return
 
-        # 5. Выводим результаты
-        if not results:
-            print("❌ Ничего не найдено.")
-            return
+    mode = "legacy" if use_legacy else "baseline"
+    print(f"🔎 {mode} retrieval for query: {query_text}\n")
+    for result in results[:5]:
+        print(f"--- Result #{result.rank} ---")
+        print(f"file: {result.file_name}")
+        print(f"section: {result.section_title}")
+        print(f"retrieval_score: {result.retrieval_score}")
+        print(f"rerank_score: {result.rerank_score}")
+        print(f"confidence: {result.confidence_label}")
+        print(result.expanded_text[:1200])
+        print()
 
-        print(f"✅ Найдено {len(results)} документов:\n")
-        for i, node in enumerate(results):
-            print(f"--- Результат #{i+1} (Score: {node.score:.4f}) ---")
-            print(f"📄 Файл: {node.metadata.get('file_name', 'Unknown')}")
-            # Выводим первые 200 символов найденного текста
-            print(f"📝 Текст: {node.get_content()[:300]}...\n")
-
-    finally:
-        client.close()
 
 if __name__ == "__main__":
-    # Задай вопрос, который ТОЧНО есть в твоих документах
-    # Например, из файла "РЕКОМЕНДАЦИИ ПО ЗАПОЛНЕНИЮ..."
-    test_hybrid_search("By what percentage did Official development assistance decrease in 2024, according to the report")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("query", nargs="?", default="Что такое информационная система?")
+    parser.add_argument("--legacy", action="store_true")
+    args = parser.parse_args()
+    test_hybrid_search(args.query, use_legacy=args.legacy)
