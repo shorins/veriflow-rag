@@ -39,6 +39,15 @@ synthesis-benchmark:
 synthesis-benchmark-local:
     VERIFLOW_HF_LOCAL_FILES_ONLY=true {{python}} -m veriflow_rag.synthesis.evaluate
 
+verification query="Что такое информационная система?":
+    {{python}} -m veriflow_rag.verification.test_verification "{{query}}"
+
+verification-local query="Что такое информационная система?":
+    VERIFLOW_HF_LOCAL_FILES_ONLY=true {{python}} -m veriflow_rag.verification.test_verification "{{query}}"
+
+ui:
+    {{poetry}} run chainlit run src/veriflow_rag/app.py -w
+
 lmstudio-models:
     curl -sS http://127.0.0.1:1234/v1/models
 
@@ -51,4 +60,4 @@ download-retrieval-models:
     {{python}} -c "from huggingface_hub import snapshot_download; [print(f'{repo_id}: {snapshot_download(repo_id=repo_id)}') for repo_id in ('BAAI/bge-m3', 'BAAI/bge-reranker-v2-m3')]"
 
 test:
-    {{python}} -m unittest tests.test_retrieval_pipeline tests.test_synthesis_service
+    {{python}} -m unittest tests.test_retrieval_pipeline tests.test_synthesis_service tests.test_verification_pipeline

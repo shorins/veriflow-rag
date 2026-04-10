@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal, Tuple
 
 import torch
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+DraftStrategy = Literal["conservative", "balanced", "demo"]
+VerificationSensitivity = Literal["conservative", "balanced", "demo"]
 
 
 def _detect_torch_device() -> str:
@@ -51,13 +56,56 @@ class AppConfig(BaseSettings):
     lmstudio_base_url: str = "http://127.0.0.1:1234"
     lmstudio_api_key: str = "lm-studio"
     lmstudio_api_mode: str = "auto"
-    synthesis_model_name: str = "qwen/qwen3.5-9b"
+    available_draft_models: Tuple[str, ...] = (
+        "qwen2.5-vl-3b-instruct",
+        "qwen2.5-vl-7b-instruct",
+    )
+    available_verification_models: Tuple[str, ...] = (
+        "qwen2.5-vl-3b-instruct",
+        "qwen2.5-vl-7b-instruct",
+    )
+    draft_model_name: str = "qwen2.5-vl-3b-instruct"
+    verification_model_name: str = "qwen2.5-vl-7b-instruct"
+    draft_strategy: DraftStrategy = "demo"
+    verification_sensitivity: VerificationSensitivity = "demo"
     synthesis_temperature: float = 0.0
     synthesis_max_tokens: int = 700
     synthesis_top_evidence_k: int = 4
     synthesis_min_confident_evidence: int = 2
-    synthesis_timeout_seconds: int = 60
+    synthesis_timeout_seconds: int = 180
     synthesis_max_evidence_chars: int = 1200
+
+    verification_top_claim_evidence_k: int = 3
+    verification_max_evidence_chars: int = 900
+    verification_temperature: float = 0.0
+    verification_max_tokens: int = 700
+    verification_timeout_seconds: int = 180
+    verification_partial_ratio_threshold: float = 0.2
+    verification_problem_span_ratio_threshold: float = 0.15
+
+    @property
+    def synthesis_model_name(self) -> str:
+        return self.draft_model_name
+
+    def with_draft_model(self, model_name: str) -> "AppConfig":
+        if model_name not in self.available_draft_models:
+            raise ValueError(
+                f"Unknown draft model '{model_name}'. Expected one of: {', '.join(self.available_draft_models)}"
+            )
+        return self.model_copy(update={"draft_model_name": model_name})
+
+    def with_verification_model(self, model_name: str) -> "AppConfig":
+        if model_name not in self.available_verification_models:
+            raise ValueError(
+                f"Unknown verification model '{model_name}'. Expected one of: {', '.join(self.available_verification_models)}"
+            )
+        return self.model_copy(update={"verification_model_name": model_name})
+
+    def with_draft_strategy(self, strategy: DraftStrategy) -> "AppConfig":
+        return self.model_copy(update={"draft_strategy": strategy})
+
+    def with_verification_sensitivity(self, sensitivity: VerificationSensitivity) -> "AppConfig":
+        return self.model_copy(update={"verification_sensitivity": sensitivity})
 
     @property
     def manifest_path(self) -> Path:

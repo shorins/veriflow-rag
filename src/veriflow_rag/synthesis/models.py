@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from veriflow_rag.retrieval.pipeline import EvidenceBlock
+
+
+AnswerDepth = Literal["brief", "standard", "detailed"]
 
 
 class Citation(BaseModel):
@@ -20,6 +24,7 @@ class SynthesizedAnswer(BaseModel):
     used_evidence_ids: list[str] = Field(default_factory=list)
     insufficient_context: bool = False
     omitted_points: list[str] = Field(default_factory=list)
+    answer_depth: AnswerDepth = "standard"
     model_name: str
     prompt_version: str
 

@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "claim_id",
+    "claim_text",
+    "status",
+    "reason",
+    "used_evidence_ids",
+    "rewrite_needed",
+    "revised_claim"
+  ],
+  "properties": {
+    "claim_id": {"type": "string"},
+    "claim_text": {"type": "string"},
+    "status": {
+      "type": "string",
+      "enum": ["supported", "partial", "unsupported", "contradicted"]
+    },
+    "reason": {"type": "string"},
+    "used_evidence_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "rewrite_needed": {"type": "boolean"},
+    "revised_claim": {
+      "type": ["string", "null"]
+    }
+  }
+}

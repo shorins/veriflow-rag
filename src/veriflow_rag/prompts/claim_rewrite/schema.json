@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["claim_id", "rewritten_span"],
+  "properties": {
+    "claim_id": {"type": "string"},
+    "rewritten_span": {"type": "string"}
+  }
+}

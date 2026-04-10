@@ -40,9 +40,23 @@ def load_prompt_artifacts() -> PromptArtifacts:
     )
 
 
-def render_user_prompt(template: str, *, query: str, evidence_xml: str, schema_json: str) -> str:
+def render_user_prompt(
+    template: str,
+    *,
+    query: str,
+    answer_depth: str,
+    draft_strategy: str,
+    strategy_note: str,
+    content_plan: str,
+    evidence: str,
+    schema_json: str,
+) -> str:
     return template.format(
         query=query.strip(),
-        evidence=evidence_xml.strip(),
+        answer_depth=answer_depth.strip(),
+        draft_strategy=draft_strategy.strip(),
+        strategy_note=strategy_note.strip(),
+        content_plan=content_plan.strip(),
+        evidence=evidence.strip(),
         output_schema=schema_json.strip(),
     )
