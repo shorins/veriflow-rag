@@ -32,6 +32,12 @@ class AppConfig(BaseSettings):
     data_dir: Path = Field(default_factory=lambda: Path.cwd() / "data")
     artifact_dir: Path = Field(default_factory=lambda: Path.cwd() / ".cache" / "veriflow_rag")
     report_dir: Path = Field(default_factory=lambda: Path.cwd() / "reports")
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
+    cors_allowed_origins: Tuple[str, ...] = (
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    )
 
     weaviate_index_name: str = "VeriFlowDocsBaseline"
     legacy_weaviate_index_name: str = "VeriFlowDocsLegacy"
@@ -110,6 +116,10 @@ class AppConfig(BaseSettings):
     @property
     def manifest_path(self) -> Path:
         return self.artifact_dir / "baseline_manifest.json"
+
+    @property
+    def documents_registry_path(self) -> Path:
+        return self.artifact_dir / "documents.json"
 
     @property
     def benchmark_report_path(self) -> Path:

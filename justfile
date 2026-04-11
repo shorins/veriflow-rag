@@ -48,6 +48,18 @@ verification-local query="Что такое информационная сис�
 ui:
     {{poetry}} run chainlit run src/veriflow_rag/app.py -w
 
+chainlit:
+    {{poetry}} run chainlit run src/veriflow_rag/app.py -w
+
+api:
+    {{poetry}} run uvicorn veriflow_rag.web.app:app --host 127.0.0.1 --port 8000 --reload
+
+ui-web:
+    cd frontend && npm run dev
+
+web-dev:
+    trap 'kill 0' EXIT; {{poetry}} run uvicorn veriflow_rag.web.app:app --host 127.0.0.1 --port 8000 --reload & (cd frontend && npm run dev)
+
 lmstudio-models:
     curl -sS http://127.0.0.1:1234/v1/models
 

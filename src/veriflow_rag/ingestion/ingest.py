@@ -129,6 +129,20 @@ def infer_block_type(text: str, section_title: str, heading_path: str) -> str:
     return "paragraph"
 
 
+def exclude_metadata_from_model_text(node) -> None:
+    """Preserve metadata storage, but stop LlamaIndex from prepending it into model text.
+
+    We already inject the retrieval-relevant context into chunk content manually via
+    `contextualize_child_text(...)`. Re-including long metadata in LlamaIndex formatting only
+    inflates the effective chunk size and can trigger warnings such as:
+    "Metadata length (...) is longer than chunk size (...)".
+    """
+    metadata = getattr(node, "metadata", None) or {}
+    keys = list(metadata.keys())
+    node.excluded_embed_metadata_keys = keys
+    node.excluded_llm_metadata_keys = keys
+
+
 def build_embed_model(config: AppConfig) -> HuggingFaceEmbedding:
     preferred_devices = [config.embed_device]
     if config.embed_device != "cpu":
@@ -170,12 +184,13 @@ def parse_pdf_with_docling(file_path: Path) -> Document:
         "source_path": str(file_path),
         "parser_name": "docling",
     }
+    exclude_metadata_from_model_text(doc)
     return doc
 
 
 def parse_pdf_with_pymupdf(file_path: Path) -> Document:
     markdown_text = pymupdf4llm.to_markdown(str(file_path))
-    return Document(
+    doc = Document(
         text=markdown_text,
         metadata={
             "file_name": file_path.name,
@@ -183,6 +198,8 @@ def parse_pdf_with_pymupdf(file_path: Path) -> Document:
             "parser_name": "pymupdf4llm",
         },
     )
+    exclude_metadata_from_model_text(doc)
+    return doc
 
 
 def load_pdf_document(file_path: Path, config: AppConfig) -> Document:
@@ -243,6 +260,7 @@ def split_markdown_into_sections(document: Document) -> list[Document]:
                 },
             )
         )
+        exclude_metadata_from_model_text(sections[-1])
         current_lines = []
 
     for line in lines:
@@ -324,6 +342,7 @@ def build_baseline_nodes(
                         "raw_text": raw_text,
                     }
                 )
+                exclude_metadata_from_model_text(child)
                 child.set_content(contextualize_child_text(child.metadata, raw_text))
                 indexed_nodes.append(child)
                 manifest_records.append(

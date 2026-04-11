@@ -96,6 +96,19 @@ just synthesis-benchmark-local
 just ui
 ```
 
+Поднять новый web stack:
+
+```bash
+just api
+just ui-web
+```
+
+Или вместе:
+
+```bash
+just web-dev
+```
+
 Отчёты будут сохранены в:
 
 - `reports/retrieval_benchmark.md`
@@ -150,6 +163,10 @@ just ui
 - `just verification "..."`
 - `just verification-local "..."`
 - `just ui`
+- `just chainlit`
+- `just api`
+- `just ui-web`
+- `just web-dev`
 - `just lmstudio-models`
 - `just lmstudio-chat "..."`
 - `just download-retrieval-models`
@@ -211,6 +228,28 @@ Verification pipeline поверх draft answer работает так:
    - final corrected answer
 
 В текущем MVP verification intentionally реализован линейным Python pipeline, без `LangGraph`.
+
+## Web UI
+
+Новый web-интерфейс `trustRAG` теперь строится поверх:
+
+- `FastAPI` web layer в `src/veriflow_rag/web/`
+- `Next.js` frontend в `frontend/`
+- `SSE`-событий для live verification
+
+В первой версии web UI уже поддерживает:
+
+- sidebar документов
+- upload / corpus reindex / delete
+- chat с `draft answer`
+- отдельные `draft model` и `verification model`
+- live claim verification
+- in-place rewrite animation для проблемных spans
+
+Важно: текущий ingestion в web UI работает на уровне **всего корпуса**.  
+После загрузки или удаления PDF нужно нажать `Обновить индекс`, и backend пересоберёт retrieval-базу по всем файлам из `data/`.
+
+`Chainlit` остаётся в репозитории как legacy/demo fallback.
 
 ## Demo UI
 

@@ -81,6 +81,12 @@ log.txt
 .files/
 public/
 
+# Next.js frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+
 # Docker
 docker-compose.override.yml
 
