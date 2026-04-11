@@ -6,7 +6,7 @@ import { motion } from "motion/react";
 import { createDraft, startVerification } from "@/lib/api/client";
 import { subscribeToVerificationRun } from "@/lib/sse/verification";
 import { applyVerificationEvent, createDraftMessage } from "@/lib/state/message-state";
-import type { DraftMessage, DraftStrategy, VerificationSensitivity } from "@/lib/types";
+import type { DemoFaultMode, DraftMessage, DraftStrategy, VerificationSensitivity } from "@/lib/types";
 import { RewriteAnimator } from "@/components/chat/rewrite-animator";
 
 type Props = {
@@ -14,13 +14,15 @@ type Props = {
   verificationModel: string;
   draftStrategy: DraftStrategy;
   verificationSensitivity: VerificationSensitivity;
+  demoFaultMode: DemoFaultMode;
+  demoFaultCount: number;
 };
 
 export function ChatPanel(props: Props) {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<DraftMessage[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const storageKey = "trustrag-chat-history-v1";
+  const storageKey = "trustrag-chat-history-v2";
 
   useEffect(() => {
     try {
@@ -56,6 +58,8 @@ export function ChatPanel(props: Props) {
         verification_model: props.verificationModel,
         draft_strategy: props.draftStrategy,
         verification_sensitivity: props.verificationSensitivity,
+        demo_fault_mode: props.demoFaultMode,
+        demo_fault_count: props.demoFaultCount,
       });
       const message = createDraftMessage({
         id: response.message_id,
@@ -68,6 +72,11 @@ export function ChatPanel(props: Props) {
         verificationModel: response.verification_model,
         draftStrategy: response.draft_strategy,
         verificationSensitivity: response.verification_sensitivity,
+        groundedAnswer: response.grounded_answer,
+        faultInjectionActive: response.fault_injection_active,
+        demoFaultMode: response.demo_fault_mode,
+        demoFaultCount: response.demo_fault_count,
+        faultInjectionSummary: response.fault_injection_summary,
       });
       setMessages((current) => [...current, message]);
       setQuery("");
@@ -85,6 +94,8 @@ export function ChatPanel(props: Props) {
       verification_model: message.verificationModel,
       draft_strategy: message.draftStrategy,
       verification_sensitivity: message.verificationSensitivity,
+      demo_fault_mode: message.demoFaultMode,
+      demo_fault_count: message.demoFaultCount,
     });
 
     setMessages((current) =>
@@ -143,6 +154,9 @@ export function ChatPanel(props: Props) {
                   <p className="mt-1 text-sm text-mutedink">
                     {message.draftModel} · {message.answerDepth} · {message.draftStrategy}
                   </p>
+                  {message.faultInjectionActive ? (
+                    <p className="mt-1 text-xs text-amber-700">{message.faultInjectionSummary}</p>
+                  ) : null}
                 </div>
                 {!message.insufficientContext ? (
                   <button
@@ -167,8 +181,11 @@ export function ChatPanel(props: Props) {
               <div className="rounded-2xl border border-stone-200 bg-canvas p-4">
                 <p className="text-xs uppercase tracking-[0.24em] text-mutedink">Citations</p>
                 <div className="mt-3 space-y-3 text-sm">
-                  {message.citations.map((citation) => (
-                    <div key={citation.evidence_id} className="rounded-xl border border-stone-200 bg-white p-3">
+                  {message.citations.map((citation, index) => (
+                    <div
+                      key={`${citation.evidence_id}-${citation.file_name}-${index}`}
+                      className="rounded-xl border border-stone-200 bg-white p-3"
+                    >
                       <p className="font-medium">
                         [{citation.evidence_id}] {citation.file_name}
                       </p>

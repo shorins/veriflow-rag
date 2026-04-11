@@ -8,7 +8,7 @@ import { DocumentSidebar } from "@/components/documents/document-sidebar";
 import { ControlBar } from "@/components/layout/control-bar";
 import { deleteDocument, fetchDocuments, startCorpusReindex, uploadDocuments } from "@/lib/api/client";
 import { subscribeToDocumentRun } from "@/lib/sse/documents";
-import type { DraftStrategy, VerificationSensitivity } from "@/lib/types";
+import type { DemoFaultMode, DraftStrategy, VerificationSensitivity } from "@/lib/types";
 
 export default function HomePage() {
   const queryClient = useQueryClient();
@@ -16,6 +16,8 @@ export default function HomePage() {
   const [verificationModel, setVerificationModel] = useState("qwen2.5-vl-7b-instruct");
   const [draftStrategy, setDraftStrategy] = useState<DraftStrategy>("demo");
   const [verificationSensitivity, setVerificationSensitivity] = useState<VerificationSensitivity>("demo");
+  const [demoFaultMode, setDemoFaultMode] = useState<DemoFaultMode>("off");
+  const [demoFaultCount, setDemoFaultCount] = useState(1);
   const [corpusRunState, setCorpusRunState] = useState<"idle" | "running" | "error" | "completed">("idle");
   const [corpusRunLabel, setCorpusRunLabel] = useState<string | null>(null);
 
@@ -114,16 +116,22 @@ export default function HomePage() {
             verificationModel={verificationModel}
             draftStrategy={draftStrategy}
             verificationSensitivity={verificationSensitivity}
+            demoFaultMode={demoFaultMode}
+            demoFaultCount={demoFaultCount}
             onDraftModelChange={setDraftModel}
             onVerificationModelChange={setVerificationModel}
             onDraftStrategyChange={setDraftStrategy}
             onVerificationSensitivityChange={setVerificationSensitivity}
+            onDemoFaultModeChange={setDemoFaultMode}
+            onDemoFaultCountChange={setDemoFaultCount}
           />
           <ChatPanel
             draftModel={draftModel}
             verificationModel={verificationModel}
             draftStrategy={draftStrategy}
             verificationSensitivity={verificationSensitivity}
+            demoFaultMode={demoFaultMode}
+            demoFaultCount={demoFaultCount}
           />
         </div>
       </div>

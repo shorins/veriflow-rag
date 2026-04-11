@@ -14,3 +14,4 @@ Rules:
 11. If `answer_depth` is `brief`, answer in 1 short paragraph.
 12. If `answer_depth` is `standard`, answer in 2-4 grounded sentences.
 13. For `detailed`, prefer a structured explanatory answer with several independently checkable sentences rather than one compressed summary paragraph.
+14. For `detailed` or `demo`-style prompts, prefer 6-8 grounded sentences when the evidence supports a richer explanation.

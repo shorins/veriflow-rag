@@ -54,6 +54,11 @@ class SynthesisServiceTests(unittest.TestCase):
                 "lmstudio_api_key": "lm-studio",
                 "lmstudio_api_mode": "auto",
                 "draft_strategy": "balanced",
+                "demo_fault_mode": "off",
+                "demo_fault_count": 1,
+                "recall_top_k": 40,
+                "rerank_top_n": 8,
+                "expand_context_window": 1,
             },
         )()
 
@@ -258,12 +263,50 @@ class SynthesisServiceTests(unittest.TestCase):
         self.assertIn("<answer_depth>\nbrief\n</answer_depth>", client.kwargs_history[0]["user_prompt"])
         self.assertIn("<draft_strategy>\nbalanced\n</draft_strategy>", client.kwargs_history[0]["user_prompt"])
 
+    def test_detailed_answer_can_expand_when_first_pass_is_too_short(self) -> None:
+        config = self._make_config()
+        client = FakeClient(
+            [
+                """{
+                  "answer": "Жизненный цикл включает основные этапы.",
+                  "citations": [{"evidence_id": "ev_1", "file_name": "", "section_title": "", "support": "alpha"}],
+                  "used_evidence_ids": ["ev_1"],
+                  "insufficient_context": false,
+                  "omitted_points": []
+                }""",
+                """{
+                  "answer": "Жизненный цикл определяет весь период существования системы. Он включает инициацию и формирование концепции. Далее выполняются проектирование и реализация. Затем проводятся тестирование и внедрение. После этого система эксплуатируется и сопровождается. Документирование поддерживает передачу знаний между участниками.",
+                  "citations": [{"evidence_id": "ev_1", "file_name": "", "section_title": "", "support": "alpha"}],
+                  "used_evidence_ids": ["ev_1"],
+                  "insufficient_context": false,
+                  "omitted_points": []
+                }""",
+            ]
+        )
+        service = AnswerSynthesisService(config=config, client=client)
+
+        result = service.synthesize_answer(
+            "Расскажи подробно про жизненный цикл информационной системы, что в него входит",
+            [
+                self._make_block(1, "high", "alpha"),
+                self._make_block(2, "medium", "beta"),
+                self._make_block(3, "medium", "gamma"),
+            ],
+        )
+
+        self.assertFalse(result.synthesized_answer.insufficient_context)
+        self.assertEqual(client.calls, 2)
+        self.assertGreaterEqual(
+            len(AnswerSynthesisService._split_sentences(result.synthesized_answer.answer)),
+            5,
+        )
+
     def test_prompt_includes_answer_depth_for_detailed(self) -> None:
         config = self._make_config()
         client = FakeClient(
             [
                 """{
-                  "answer": "Первый абзац.\\n\\nВторой абзац.\\n\\nТретий абзац.",
+                  "answer": "Первый абзац раскрывает рамку вопроса. Второй абзац описывает основные этапы. Третий абзац добавляет supporting processes. Четвертое предложение уточняет ограничения evidence. Пятое предложение фиксирует scope. Шестое предложение завершает ответ.",
                   "citations": [{"evidence_id": "ev_1", "file_name": "", "section_title": "", "support": "alpha"}],
                   "used_evidence_ids": ["ev_1"],
                   "insufficient_context": false,

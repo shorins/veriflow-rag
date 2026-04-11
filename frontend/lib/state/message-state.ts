@@ -18,6 +18,11 @@ export function createDraftMessage(input: {
   verificationModel: string;
   draftStrategy: DraftMessage["draftStrategy"];
   verificationSensitivity: DraftMessage["verificationSensitivity"];
+  groundedAnswer: string | null;
+  faultInjectionActive: boolean;
+  demoFaultMode: DraftMessage["demoFaultMode"];
+  demoFaultCount: number;
+  faultInjectionSummary: string | null;
 }): DraftMessage {
   return {
     id: input.id,
@@ -32,6 +37,11 @@ export function createDraftMessage(input: {
     verificationModel: input.verificationModel,
     draftStrategy: input.draftStrategy,
     verificationSensitivity: input.verificationSensitivity,
+    groundedAnswer: input.groundedAnswer,
+    faultInjectionActive: input.faultInjectionActive,
+    demoFaultMode: input.demoFaultMode,
+    demoFaultCount: input.demoFaultCount,
+    faultInjectionSummary: input.faultInjectionSummary,
     claims: [],
     highlightedSpans: [],
     activeRewrite: null,

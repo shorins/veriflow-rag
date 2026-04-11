@@ -24,10 +24,14 @@ SESSION_DRAFT_MODEL = "draft_model"
 SESSION_VERIFICATION_MODEL = "verification_model"
 SESSION_DRAFT_STRATEGY = "draft_strategy"
 SESSION_VERIFICATION_SENSITIVITY = "verification_sensitivity"
+SESSION_DEMO_FAULT_MODE = "demo_fault_mode"
+SESSION_DEMO_FAULT_COUNT = "demo_fault_count"
 SETTINGS_DRAFT_MODEL = "draft_model"
 SETTINGS_VERIFICATION_MODEL = "verification_model"
 SETTINGS_DRAFT_STRATEGY = "draft_strategy"
 SETTINGS_VERIFICATION_SENSITIVITY = "verification_sensitivity"
+SETTINGS_DEMO_FAULT_MODE = "demo_fault_mode"
+SETTINGS_DEMO_FAULT_COUNT = "demo_fault_count"
 
 
 def _base_config() -> AppConfig:
@@ -58,6 +62,14 @@ def _selected_verification_sensitivity() -> str:
     return str(cl.user_session.get(SESSION_VERIFICATION_SENSITIVITY) or _base_config().verification_sensitivity)
 
 
+def _selected_demo_fault_mode() -> str:
+    return str(cl.user_session.get(SESSION_DEMO_FAULT_MODE) or _base_config().demo_fault_mode)
+
+
+def _selected_demo_fault_count() -> int:
+    return int(cl.user_session.get(SESSION_DEMO_FAULT_COUNT) or _base_config().demo_fault_count)
+
+
 def _selected_config() -> AppConfig:
     config = _base_config()
     return (
@@ -65,6 +77,8 @@ def _selected_config() -> AppConfig:
         .with_verification_model(_selected_verification_model_name())
         .with_draft_strategy(_selected_draft_strategy())
         .with_verification_sensitivity(_selected_verification_sensitivity())
+        .with_demo_fault_mode(_selected_demo_fault_mode())
+        .with_demo_fault_count(_selected_demo_fault_count())
     )
 
 
@@ -81,11 +95,15 @@ def _render_draft_markdown(bundle: SynthesisResultBundle) -> str:
         f"- `draft_strategy`: `{_selected_draft_strategy()}`",
         f"- `verification_model`: `{_selected_verification_model_name()}`",
         f"- `verification_sensitivity`: `{_selected_verification_sensitivity()}`",
+        f"- `demo_fault_mode`: `{answer.fault_injection_mode}`",
+        f"- `demo_fault_count`: `{answer.fault_injection_count}`",
     ]
     if answer.answer_depth == "detailed":
         lines.append("- `depth_note`: `detailed выбран автоматически по обзорной формулировке вопроса`")
     if _selected_draft_strategy() == "demo" or _selected_verification_sensitivity() == "demo":
         lines.append("- `demo_note`: `Demo mode active: higher rewrite sensitivity for conference visualization`")
+    if answer.fault_injection_active and answer.fault_injection_summary:
+        lines.append(f"- `fault_note`: `{answer.fault_injection_summary}`")
     if answer.citations:
         lines.extend(["", "### Citations", ""])
         for citation in answer.citations:
@@ -106,6 +124,8 @@ async def on_chat_start() -> None:
     cl.user_session.set(SESSION_VERIFICATION_MODEL, config.verification_model_name)
     cl.user_session.set(SESSION_DRAFT_STRATEGY, config.draft_strategy)
     cl.user_session.set(SESSION_VERIFICATION_SENSITIVITY, config.verification_sensitivity)
+    cl.user_session.set(SESSION_DEMO_FAULT_MODE, config.demo_fault_mode)
+    cl.user_session.set(SESSION_DEMO_FAULT_COUNT, config.demo_fault_count)
     await cl.ChatSettings(
         [
             Select(
@@ -136,6 +156,20 @@ async def on_chat_start() -> None:
                 initial_value=config.verification_sensitivity,
                 tooltip="Demo строже относится к partial claims и чаще запускает локальный rewrite.",
             ),
+            Select(
+                id=SETTINGS_DEMO_FAULT_MODE,
+                label="Verification demo",
+                values=["off", "deterministic"],
+                initial_value=config.demo_fault_mode,
+                tooltip="Controlled mismatch demo intentionally perturbs 1-2 claims for visualization.",
+            ),
+            Select(
+                id=SETTINGS_DEMO_FAULT_COUNT,
+                label="Fault count",
+                values=["1", "2"],
+                initial_value=str(config.demo_fault_count),
+                tooltip="Сколько контролируемых неточностей внести в draft в demo-режиме.",
+            ),
         ]
     ).send()
     await cl.Message(
@@ -160,6 +194,8 @@ async def on_settings_update(settings: dict) -> None:
             .with_verification_sensitivity(
                 str(settings.get(SETTINGS_VERIFICATION_SENSITIVITY, config.verification_sensitivity))
             )
+            .with_demo_fault_mode(str(settings.get(SETTINGS_DEMO_FAULT_MODE, config.demo_fault_mode)))
+            .with_demo_fault_count(int(settings.get(SETTINGS_DEMO_FAULT_COUNT, config.demo_fault_count)))
         )
     except ValueError as exc:
         await cl.Message(content=f"❌ {exc}").send()
@@ -168,13 +204,17 @@ async def on_settings_update(settings: dict) -> None:
     cl.user_session.set(SESSION_VERIFICATION_MODEL, resolved.verification_model_name)
     cl.user_session.set(SESSION_DRAFT_STRATEGY, resolved.draft_strategy)
     cl.user_session.set(SESSION_VERIFICATION_SENSITIVITY, resolved.verification_sensitivity)
+    cl.user_session.set(SESSION_DEMO_FAULT_MODE, resolved.demo_fault_mode)
+    cl.user_session.set(SESSION_DEMO_FAULT_COUNT, resolved.demo_fault_count)
     await cl.Message(
         content=(
             "⚙️ Настройки обновлены: "
             f"`draft_model={resolved.draft_model_name}`, "
             f"`verification_model={resolved.verification_model_name}`, "
             f"`draft_strategy={resolved.draft_strategy}`, "
-            f"`verification_sensitivity={resolved.verification_sensitivity}`."
+            f"`verification_sensitivity={resolved.verification_sensitivity}`, "
+            f"`demo_fault_mode={resolved.demo_fault_mode}`, "
+            f"`demo_fault_count={resolved.demo_fault_count}`."
         )
     ).send()
 
@@ -275,6 +315,7 @@ async def run_agent_verification(action: cl.Action) -> None:
 
         claim_results = []
         claim_evidence_map = {}
+        injected_spans = draft_bundle.synthesized_answer.fault_injection_spans
         for claim in claims:
             progress.content = f"## Агентная проверка\n\nПроверка `{claim.claim_id}`..."
             await progress.update()
@@ -290,6 +331,15 @@ async def run_agent_verification(action: cl.Action) -> None:
                 claim,
                 prepared,
             )
+            if (
+                injected_spans
+                and result.status != "supported"
+                and any(
+                    injected.injected_span == result.source_span or injected.injected_span == result.claim_text
+                    for injected in injected_spans
+                )
+            ):
+                result.rewrite_needed = True
             claim_results.append(result)
 
             highlighted.content = "## Highlighted Answer\n\n" + render_highlighted_answer(
@@ -308,7 +358,13 @@ async def run_agent_verification(action: cl.Action) -> None:
         )
 
         rewritten_spans: dict[str, str] = {}
-        if decision.rewrite_triggered:
+        force_rewrite = any(
+            result.status != "supported"
+            and any(injected.injected_span == result.source_span for injected in injected_spans)
+            for result in claim_results
+        )
+
+        if decision.rewrite_triggered or force_rewrite:
             progress.content = "## Агентная проверка\n\nПереписывание проблемных фрагментов..."
             await progress.update()
             for result in claim_results:

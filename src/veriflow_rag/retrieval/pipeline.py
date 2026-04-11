@@ -468,5 +468,5 @@ class RetrieverService:
             client.close()
 
 
-def build_retriever(use_legacy: bool = False) -> RetrieverService:
-    return RetrieverService(get_config(), use_legacy=use_legacy)
+def build_retriever(config=None, use_legacy: bool = False) -> RetrieverService:
+    return RetrieverService(config or get_config(), use_legacy=use_legacy)

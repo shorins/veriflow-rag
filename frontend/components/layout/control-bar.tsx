@@ -1,16 +1,20 @@
 "use client";
 
-import type { DraftStrategy, VerificationSensitivity } from "@/lib/types";
+import type { DemoFaultMode, DraftStrategy, VerificationSensitivity } from "@/lib/types";
 
 type Props = {
   draftModel: string;
   verificationModel: string;
   draftStrategy: DraftStrategy;
   verificationSensitivity: VerificationSensitivity;
+  demoFaultMode: DemoFaultMode;
+  demoFaultCount: number;
   onDraftModelChange: (value: string) => void;
   onVerificationModelChange: (value: string) => void;
   onDraftStrategyChange: (value: DraftStrategy) => void;
   onVerificationSensitivityChange: (value: VerificationSensitivity) => void;
+  onDemoFaultModeChange: (value: DemoFaultMode) => void;
+  onDemoFaultCountChange: (value: number) => void;
 };
 
 const models = ["qwen2.5-vl-3b-instruct", "qwen2.5-vl-7b-instruct"];
@@ -36,6 +40,18 @@ export function ControlBar(props: Props) {
         value={props.verificationSensitivity}
         onChange={(value) => props.onVerificationSensitivityChange(value as VerificationSensitivity)}
         options={["conservative", "balanced", "demo"]}
+      />
+      <ControlSelect
+        label="Verification demo"
+        value={props.demoFaultMode}
+        onChange={(value) => props.onDemoFaultModeChange(value as DemoFaultMode)}
+        options={["off", "deterministic"]}
+      />
+      <ControlSelect
+        label="Fault count"
+        value={String(props.demoFaultCount)}
+        onChange={(value) => props.onDemoFaultCountChange(Number(value))}
+        options={["1", "2"]}
       />
     </div>
   );
@@ -64,4 +80,3 @@ function ControlSelect(props: {
     </label>
   );
 }
-

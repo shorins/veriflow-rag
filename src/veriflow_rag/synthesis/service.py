@@ -7,6 +7,7 @@ import re
 from pydantic import ValidationError
 
 from veriflow_rag.core.config import AppConfig, DraftStrategy, get_config
+from veriflow_rag.demo.fault_injection import inject_demo_faults
 from veriflow_rag.retrieval.pipeline import EvidenceBlock, build_retriever
 from veriflow_rag.synthesis.client import LMStudioChatClient
 from veriflow_rag.synthesis.models import (
@@ -26,6 +27,8 @@ class SynthesisProfile:
     answer_depth: AnswerDepth
     top_evidence_k: int
     max_evidence_chars: int
+    min_sentence_count: int
+    target_sentence_count: int
     draft_strategy: DraftStrategy
     strategy_note: str
     content_plan: str
@@ -146,8 +149,8 @@ class AnswerSynthesisService:
             if query_intent in {"comparison", "procedure", "enumeration"} or answer_depth == "detailed":
                 return (
                     "Produce a structured overview with explicit sentence-level claims. "
-                    "Use 3 short paragraphs when possible, keep one substantive claim per sentence, and prefer slightly broader "
-                    "but still evidence-grounded phrasing that can be independently verified."
+                    "Use 3 short paragraphs when possible, target 6-8 grounded sentences, keep one substantive claim per sentence, "
+                    "and prefer slightly broader but still evidence-grounded phrasing that can be independently verified."
                 )
             return (
                 "Use a richer, conference-demo friendly answer shape with multiple grounded sentences "
@@ -198,6 +201,8 @@ class AnswerSynthesisService:
                 answer_depth="brief",
                 top_evidence_k=brief_top_k,
                 max_evidence_chars=brief_chars,
+                min_sentence_count=1,
+                target_sentence_count=2,
                 draft_strategy=strategy,
                 strategy_note=self._strategy_note(effective_depth, strategy, query_intent),
                 content_plan=self._content_plan(query, effective_depth, query_intent),
@@ -207,6 +212,8 @@ class AnswerSynthesisService:
                 answer_depth="standard",
                 top_evidence_k=brief_top_k + 2,
                 max_evidence_chars=max(int(brief_chars * 1.35), 1600),
+                min_sentence_count=4 if strategy == "demo" else 3,
+                target_sentence_count=6 if strategy == "demo" else 4,
                 draft_strategy=strategy,
                 strategy_note=self._strategy_note(effective_depth, strategy, query_intent),
                 content_plan=self._content_plan(query, effective_depth, query_intent),
@@ -214,7 +221,9 @@ class AnswerSynthesisService:
         return SynthesisProfile(
             answer_depth="detailed",
             top_evidence_k=max(brief_top_k + 4, 8),
-            max_evidence_chars=max(int(brief_chars * 1.9), 2400),
+            max_evidence_chars=max(int(brief_chars * 2.2), 3000),
+            min_sentence_count=6 if strategy == "demo" else 5,
+            target_sentence_count=8 if strategy == "demo" else 6,
             draft_strategy=strategy,
             strategy_note=self._strategy_note(effective_depth, strategy, query_intent),
             content_plan=self._content_plan(query, effective_depth, query_intent),
@@ -337,6 +346,7 @@ class AnswerSynthesisService:
         answer_depth: AnswerDepth,
         profile: SynthesisProfile,
         retry: bool = False,
+        expansion_instruction: str | None = None,
     ) -> RawSynthesizedAnswer:
         evidence_xml = "\n\n".join(item.prompt_text for item in prepared)
         schema_json = json.dumps(
@@ -344,13 +354,20 @@ class AnswerSynthesisService:
             ensure_ascii=False,
             indent=2,
         )
-        user_prompt = render_user_prompt(
-            self.prompt_artifacts.user_template
-            + (
+        prompt_suffix = ""
+        if retry:
+            prompt_suffix += (
                 "\n\n<format_reminder>\nReturn only valid JSON that strictly follows the schema.\n</format_reminder>"
-                if retry
-                else ""
-            ),
+            )
+        if expansion_instruction:
+            prompt_suffix += (
+                "\n\n<expansion_instruction>\n"
+                + expansion_instruction.strip()
+                + "\n</expansion_instruction>"
+            )
+
+        user_prompt = render_user_prompt(
+            self.prompt_artifacts.user_template + prompt_suffix,
             query=query,
             answer_depth=answer_depth,
             draft_strategy=profile.draft_strategy,
@@ -370,6 +387,68 @@ class AnswerSynthesisService:
         )
         payload = extract_json_payload(raw_text)
         return RawSynthesizedAnswer.model_validate(payload)
+
+    def _maybe_expand_answer(
+        self,
+        query: str,
+        prepared: list[PreparedEvidence],
+        normalized: SynthesizedAnswer,
+        profile: SynthesisProfile,
+    ) -> SynthesizedAnswer:
+        if normalized.insufficient_context or profile.answer_depth == "brief":
+            return normalized
+        sentence_count = len(self._split_sentences(normalized.answer))
+        if sentence_count >= profile.min_sentence_count:
+            return normalized
+
+        expansion_instruction = (
+            f"The current answer is too compressed. Expand it to {profile.target_sentence_count} grounded sentences "
+            "and 2-3 short paragraphs when the evidence supports it. Use only supported details from the evidence, "
+            "do not introduce new facts, and preserve the same language."
+        )
+        raw = self._invoke_model(
+            query,
+            prepared,
+            answer_depth=profile.answer_depth,
+            profile=profile,
+            expansion_instruction=expansion_instruction,
+        )
+        expanded = self._normalize_result(raw, prepared, profile.answer_depth, profile.draft_strategy)
+        if expanded.insufficient_context:
+            return normalized
+        if len(self._split_sentences(expanded.answer)) > sentence_count:
+            return expanded
+        return normalized
+
+    def _maybe_apply_demo_faults(
+        self,
+        answer: SynthesizedAnswer,
+    ) -> SynthesizedAnswer:
+        demo_fault_mode = getattr(self.config, "demo_fault_mode", "off")
+        if getattr(self.config, "draft_strategy", "balanced") != "demo":
+            return answer
+        if demo_fault_mode == "off" or answer.insufficient_context:
+            return answer
+
+        injection = inject_demo_faults(
+            answer=answer.answer,
+            mode=demo_fault_mode,
+            count=getattr(self.config, "demo_fault_count", 1),
+        )
+        if not injection.active or not injection.answer:
+            return answer
+
+        return answer.model_copy(
+            update={
+                "answer": injection.answer,
+                "grounded_answer": answer.answer,
+                "fault_injection_active": True,
+                "fault_injection_mode": injection.mode,
+                "fault_injection_count": injection.count,
+                "fault_injection_summary": injection.summary,
+                "fault_injection_spans": injection.spans,
+            }
+        )
 
     def synthesize_answer(
         self,
@@ -395,6 +474,8 @@ class AnswerSynthesisService:
             try:
                 raw = self._invoke_model(query, prepared, answer_depth=profile.answer_depth, profile=profile, retry=retry)
                 normalized = self._normalize_result(raw, prepared, profile.answer_depth, profile.draft_strategy)
+                normalized = self._maybe_expand_answer(query, prepared, normalized, profile)
+                normalized = self._maybe_apply_demo_faults(normalized)
                 if not normalized.answer.strip() and not normalized.insufficient_context:
                     raise ValueError("Model returned an empty answer without insufficient_context=true.")
                 return SynthesisResultBundle(
@@ -421,7 +502,18 @@ class AnswerSynthesisService:
         )
 
     def run_query(self, query: str) -> SynthesisResultBundle:
-        retriever = build_retriever(use_legacy=False)
+        answer_depth = self.classify_answer_depth(query)
+        strategy = getattr(self.config, "draft_strategy", "balanced")
+        retrieval_config = self.config
+        if isinstance(self.config, AppConfig) and (answer_depth != "brief" or strategy == "demo"):
+            retrieval_config = self.config.model_copy(
+                update={
+                    "recall_top_k": max(self.config.recall_top_k, 60),
+                    "rerank_top_n": max(self.config.rerank_top_n, 10),
+                    "expand_context_window": max(self.config.expand_context_window, 2),
+                }
+            )
+        retriever = build_retriever(config=retrieval_config, use_legacy=False)
         evidence_blocks = retriever.search(query)
         return self.synthesize_answer(query, evidence_blocks)
 

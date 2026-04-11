@@ -10,6 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DraftStrategy = Literal["conservative", "balanced", "demo"]
 VerificationSensitivity = Literal["conservative", "balanced", "demo"]
+DemoFaultMode = Literal["off", "deterministic", "model_guided"]
 
 
 def _detect_torch_device() -> str:
@@ -74,6 +75,8 @@ class AppConfig(BaseSettings):
     verification_model_name: str = "qwen2.5-vl-7b-instruct"
     draft_strategy: DraftStrategy = "demo"
     verification_sensitivity: VerificationSensitivity = "demo"
+    demo_fault_mode: DemoFaultMode = "off"
+    demo_fault_count: int = 1
     synthesis_temperature: float = 0.0
     synthesis_max_tokens: int = 700
     synthesis_top_evidence_k: int = 4
@@ -112,6 +115,12 @@ class AppConfig(BaseSettings):
 
     def with_verification_sensitivity(self, sensitivity: VerificationSensitivity) -> "AppConfig":
         return self.model_copy(update={"verification_sensitivity": sensitivity})
+
+    def with_demo_fault_mode(self, mode: DemoFaultMode) -> "AppConfig":
+        return self.model_copy(update={"demo_fault_mode": mode})
+
+    def with_demo_fault_count(self, count: int) -> "AppConfig":
+        return self.model_copy(update={"demo_fault_count": max(1, min(2, count))})
 
     @property
     def manifest_path(self) -> Path:

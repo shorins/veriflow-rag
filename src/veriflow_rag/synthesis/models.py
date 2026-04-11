@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from veriflow_rag.core.config import DemoFaultMode
+from veriflow_rag.demo.models import InjectedFaultSpan
 from veriflow_rag.retrieval.pipeline import EvidenceBlock
 
 
@@ -20,11 +22,17 @@ class Citation(BaseModel):
 
 class SynthesizedAnswer(BaseModel):
     answer: str
+    grounded_answer: str | None = None
     citations: list[Citation] = Field(default_factory=list)
     used_evidence_ids: list[str] = Field(default_factory=list)
     insufficient_context: bool = False
     omitted_points: list[str] = Field(default_factory=list)
     answer_depth: AnswerDepth = "standard"
+    fault_injection_active: bool = False
+    fault_injection_mode: DemoFaultMode = "off"
+    fault_injection_count: int = 0
+    fault_injection_summary: str | None = None
+    fault_injection_spans: list[InjectedFaultSpan] = Field(default_factory=list)
     model_name: str
     prompt_version: str
 

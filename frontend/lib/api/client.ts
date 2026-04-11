@@ -1,4 +1,4 @@
-import type { DocumentItem, DraftResponse } from "@/lib/types";
+import type { DemoFaultMode, DocumentItem, DraftResponse } from "@/lib/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -8,6 +8,8 @@ type DraftRequest = {
   verification_model: string;
   draft_strategy: "conservative" | "balanced" | "demo";
   verification_sensitivity: "conservative" | "balanced" | "demo";
+  demo_fault_mode: DemoFaultMode;
+  demo_fault_count: number;
 };
 
 type StartVerificationRequest = {
@@ -18,6 +20,8 @@ type StartVerificationRequest = {
   verification_model: string;
   draft_strategy: "conservative" | "balanced" | "demo";
   verification_sensitivity: "conservative" | "balanced" | "demo";
+  demo_fault_mode: DemoFaultMode;
+  demo_fault_count: number;
 };
 
 async function readJson<T>(response: Response): Promise<T> {

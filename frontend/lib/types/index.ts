@@ -1,5 +1,6 @@
 export type DraftStrategy = "conservative" | "balanced" | "demo";
 export type VerificationSensitivity = "conservative" | "balanced" | "demo";
+export type DemoFaultMode = "off" | "deterministic" | "model_guided";
 export type AnswerDepth = "brief" | "standard" | "detailed";
 export type DocumentStatus = "uploaded" | "indexed" | "stale" | "error";
 export type ClaimStatus = "supported" | "partial" | "unsupported" | "contradicted";
@@ -69,6 +70,11 @@ export type DraftMessage = {
   verificationModel: string;
   draftStrategy: DraftStrategy;
   verificationSensitivity: VerificationSensitivity;
+  groundedAnswer: string | null;
+  faultInjectionActive: boolean;
+  demoFaultMode: DemoFaultMode;
+  demoFaultCount: number;
+  faultInjectionSummary: string | null;
   claims: ClaimViewModel[];
   highlightedSpans: HighlightSpan[];
   activeRewrite: RewriteAnimationState;
@@ -87,6 +93,11 @@ export type DraftResponse = {
   verification_model: string;
   draft_strategy: DraftStrategy;
   verification_sensitivity: VerificationSensitivity;
+  grounded_answer: string | null;
+  fault_injection_active: boolean;
+  demo_fault_mode: DemoFaultMode;
+  demo_fault_count: number;
+  fault_injection_summary: string | null;
 };
 
 export type VerificationEvent = {

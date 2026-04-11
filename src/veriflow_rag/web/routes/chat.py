@@ -18,6 +18,8 @@ async def create_draft(request: Request, payload: DraftRequest) -> DraftResponse
         .with_verification_model(payload.verification_model)
         .with_draft_strategy(payload.draft_strategy)
         .with_verification_sensitivity(payload.verification_sensitivity)
+        .with_demo_fault_mode(payload.demo_fault_mode)
+        .with_demo_fault_count(payload.demo_fault_count)
     )
     message_store = request.app.state.message_store
     record = await create_draft_message(config, message_store, query=payload.query)
@@ -33,6 +35,12 @@ async def create_draft(request: Request, payload: DraftRequest) -> DraftResponse
         verification_model=record.verification_model,
         draft_strategy=record.draft_strategy,
         verification_sensitivity=record.verification_sensitivity,
+        grounded_answer=answer.grounded_answer,
+        fault_injection_active=answer.fault_injection_active,
+        demo_fault_mode=answer.fault_injection_mode,
+        demo_fault_count=answer.fault_injection_count,
+        fault_injection_summary=answer.fault_injection_summary,
+        fault_injection_spans=answer.fault_injection_spans,
     )
 
 
@@ -55,7 +63,8 @@ async def start_verification(
         .with_verification_model(payload.verification_model)
         .with_draft_strategy(payload.draft_strategy)
         .with_verification_sensitivity(payload.verification_sensitivity)
+        .with_demo_fault_mode(payload.demo_fault_mode)
+        .with_demo_fault_count(payload.demo_fault_count)
     )
     run_id = await start_verification_run(config, message_record, run_manager)
     return StartVerificationResponse(run_id=run_id, message_id=message_id)
-

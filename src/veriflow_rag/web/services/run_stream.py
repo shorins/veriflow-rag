@@ -31,6 +31,8 @@ class DraftMessageRecord:
     verification_model: str
     draft_strategy: str
     verification_sensitivity: str
+    demo_fault_mode: str
+    demo_fault_count: int
 
 
 class DraftMessageStore:
@@ -100,6 +102,10 @@ def build_diff_segments(old_text: str, new_text: str) -> list[dict[str, str]]:
     return segments
 
 
+def _normalize_span(text: str | None) -> str:
+    return " ".join((text or "").split()).strip().lower()
+
+
 async def create_draft_message(
     config: AppConfig,
     message_store: DraftMessageStore,
@@ -117,6 +123,8 @@ async def create_draft_message(
         verification_model=config.verification_model_name,
         draft_strategy=config.draft_strategy,
         verification_sensitivity=config.verification_sensitivity,
+        demo_fault_mode=getattr(config, "demo_fault_mode", "off"),
+        demo_fault_count=getattr(config, "demo_fault_count", 1),
     )
     message_store.put(record)
     return record
@@ -148,8 +156,10 @@ async def start_verification_run(
                 {
                     "query": message_record.query,
                     "draft_answer": message_record.bundle.synthesized_answer.answer,
+                    "grounded_answer": message_record.bundle.synthesized_answer.grounded_answer,
                     "draft_model": message_record.draft_model,
                     "verification_model": message_record.verification_model,
+                    "demo_fault_mode": message_record.demo_fault_mode,
                 },
             )
             claims = await asyncio.to_thread(
@@ -189,6 +199,21 @@ async def start_verification_run(
                     claim,
                     prepared,
                 )
+                injected_spans = message_record.bundle.synthesized_answer.fault_injection_spans
+                normalized_source_span = _normalize_span(result.source_span)
+                normalized_claim_text = _normalize_span(result.claim_text)
+                if (
+                    injected_spans
+                    and result.status != "supported"
+                    and any(
+                        _normalize_span(injected.injected_span) == normalized_source_span
+                        or _normalize_span(injected.injected_span) == normalized_claim_text
+                        or _normalize_span(injected.injected_span) in normalized_source_span
+                        or _normalize_span(injected.injected_span) in normalized_claim_text
+                        for injected in injected_spans
+                    )
+                ):
+                    result.rewrite_needed = True
                 claim_results.append(result)
                 await emit(
                     f"claim_{result.status}",
@@ -204,8 +229,16 @@ async def start_verification_run(
                     },
                 )
 
+            forced_rewrite = bool(
+                injected_spans and any(result.status != "supported" for result in claim_results)
+            )
+
             for result in claim_results:
-                if not result.rewrite_needed or result.status == "supported":
+                if result.status == "supported":
+                    continue
+                if forced_rewrite and injected_spans:
+                    result.rewrite_needed = True
+                if not result.rewrite_needed:
                     continue
                 await emit(
                     "rewrite_started",
@@ -217,9 +250,9 @@ async def start_verification_run(
                 prepared = claim_evidence_map.get(result.claim_id, [])
                 rewritten = await asyncio.to_thread(
                     orchestrator.claim_rewriter.rewrite_claim,
-                    message_record.bundle.synthesized_answer.answer,
-                    result,
-                    prepared,
+                    draft_answer=message_record.bundle.synthesized_answer.answer,
+                    claim_result=result,
+                    evidence_blocks=prepared,
                 )
                 if not rewritten:
                     continue
@@ -262,7 +295,7 @@ async def start_verification_run(
                 "verification_completed",
                 {
                     "final_answer": final_answer,
-                    "rewrite_triggered": bool(applied_rewrites),
+                    "rewrite_triggered": bool(applied_rewrites) or forced_rewrite,
                     "claim_results": [result.model_dump(mode="json") for result in claim_results],
                     "applied_rewrites": [rewrite.model_dump(mode="json") for rewrite in applied_rewrites],
                 },

@@ -38,7 +38,7 @@ Return a grounded answer using only the evidence above.
 Follow the requested answer depth:
 - `brief`: 1 short paragraph
 - `standard`: 2-4 grounded sentences
-- `detailed`: 3 or more short paragraphs and at least 5 grounded sentences if the evidence supports a richer explanation
+- `detailed`: 3 or more short paragraphs and at least 6 grounded sentences if the evidence supports a richer explanation
 
 For `detailed`, cover the topic by meaningful parts such as definition/framing, composition/stages/elements, and important clarifications that are explicitly supported by the evidence.
 Do not repeat the same point in different words.

@@ -5,7 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from veriflow_rag.core.config import DraftStrategy, VerificationSensitivity
+from veriflow_rag.core.config import DemoFaultMode, DraftStrategy, VerificationSensitivity
+from veriflow_rag.demo.models import InjectedFaultSpan
 from veriflow_rag.synthesis.models import AnswerDepth, Citation
 from veriflow_rag.verification.models import ClaimStatus
 
@@ -39,6 +40,8 @@ class DraftRequest(BaseModel):
     verification_model: str
     draft_strategy: DraftStrategy
     verification_sensitivity: VerificationSensitivity
+    demo_fault_mode: DemoFaultMode = "off"
+    demo_fault_count: int = 1
 
 
 class DraftResponse(BaseModel):
@@ -52,6 +55,12 @@ class DraftResponse(BaseModel):
     verification_model: str
     draft_strategy: DraftStrategy
     verification_sensitivity: VerificationSensitivity
+    grounded_answer: str | None = None
+    fault_injection_active: bool = False
+    demo_fault_mode: DemoFaultMode = "off"
+    demo_fault_count: int = 0
+    fault_injection_summary: str | None = None
+    fault_injection_spans: list[InjectedFaultSpan] = Field(default_factory=list)
 
 
 class StartVerificationRequest(BaseModel):
@@ -62,6 +71,8 @@ class StartVerificationRequest(BaseModel):
     verification_model: str
     draft_strategy: DraftStrategy
     verification_sensitivity: VerificationSensitivity
+    demo_fault_mode: DemoFaultMode = "off"
+    demo_fault_count: int = 1
 
 
 class StartVerificationResponse(BaseModel):
