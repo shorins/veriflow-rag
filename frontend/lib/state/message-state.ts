@@ -44,7 +44,11 @@ export function createDraftMessage(input: {
     faultInjectionSummary: input.faultInjectionSummary,
     claims: [],
     highlightedSpans: [],
+    activeClaimId: null,
+    activeClaimSpan: null,
     activeRewrite: null,
+    rewriteQueue: [],
+    pendingVerificationCompleted: null,
     verificationState: "idle",
     verificationError: null,
   };
@@ -54,7 +58,29 @@ export function applyVerificationEvent(message: DraftMessage, event: Verificatio
   const payload = event.payload as Record<string, unknown>;
 
   if (event.event_type === "verification_started") {
-    return { ...message, verificationState: "running", verificationError: null };
+    return {
+      ...message,
+      verificationState: "running",
+      verificationError: null,
+      activeClaimId: null,
+      activeClaimSpan: null,
+      activeRewrite: null,
+      rewriteQueue: [],
+      pendingVerificationCompleted: null,
+    };
+  }
+
+  if (event.event_type === "claim_started") {
+    return {
+      ...message,
+      verificationState: "running",
+      activeClaimId: String(payload.claim_id),
+      activeClaimSpan: String(payload.source_span),
+      highlightedSpans: message.highlightedSpans.map((item) => ({
+        ...item,
+        isActive: item.claimId === String(payload.claim_id),
+      })),
+    };
   }
 
   if (event.event_type === "claim_supported" || event.event_type === "claim_partial" || event.event_type === "claim_unsupported" || event.event_type === "claim_contradicted") {
@@ -77,7 +103,9 @@ export function applyVerificationEvent(message: DraftMessage, event: Verificatio
             claimId: claim.claim_id,
             sourceSpan: claim.source_span,
             status: highlightStatus,
+            reason: claim.reason,
             revisedText: claim.revised_claim,
+            isActive: message.activeClaimId === claim.claim_id,
           },
         ]
       : message.highlightedSpans;
@@ -100,74 +128,113 @@ export function applyVerificationEvent(message: DraftMessage, event: Verificatio
     };
   }
 
-  if (event.event_type === "rewrite_span_erasing") {
-    return {
-      ...message,
-      activeRewrite: {
-        claimId: String(payload.claim_id),
-        oldSpan: String(payload.old_span),
-        newSpan: String(payload.old_span),
-        diffSegments: [],
-        phase: "erasing",
-      },
-      verificationState: "rewriting",
-    };
-  }
-
   if (event.event_type === "rewrite_span_typing") {
-    return {
-      ...message,
-      activeRewrite: {
-        claimId: String(payload.claim_id),
-        oldSpan: String(payload.old_span),
-        newSpan: String(payload.new_span),
-        diffSegments: ((payload.diff_segments as Array<{ kind: "equal" | "insert" | "delete"; value: string }>) ?? []),
-        phase: "typing",
-      },
-      verificationState: "rewriting",
+    const newTask = {
+      claimId: String(payload.claim_id),
+      oldSpan: String(payload.old_span),
+      newSpan: String(payload.new_span),
+      diffSegments: ((payload.diff_segments as Array<{ kind: "equal" | "insert" | "delete"; value: string }>) ?? []),
+      phase: "typing" as const,
     };
-  }
 
-  if (event.event_type === "rewrite_finished") {
-    const oldSpan = String(payload.old_span);
-    const newSpan = String(payload.new_span);
-    return {
-      ...message,
-      finalText: message.finalText.replace(oldSpan, newSpan),
-      displayText: message.finalText.replace(oldSpan, newSpan),
-      highlightedSpans: message.highlightedSpans.map((item) =>
-        item.claimId === String(payload.claim_id) ? { ...item, sourceSpan: newSpan, revisedText: newSpan } : item,
-      ),
-      activeRewrite: {
-        claimId: String(payload.claim_id),
-        oldSpan,
-        newSpan,
-        diffSegments: ((payload.diff_segments as Array<{ kind: "equal" | "insert" | "delete"; value: string }>) ?? []),
-        phase: "done",
-      },
-      verificationState: "rewriting",
-    };
+    if (!message.activeRewrite) {
+      return {
+        ...message,
+        activeRewrite: newTask,
+        verificationState: "rewriting",
+      };
+    } else {
+      return {
+        ...message,
+        rewriteQueue: [...message.rewriteQueue, newTask],
+        verificationState: "rewriting",
+      };
+    }
   }
 
   if (event.event_type === "verification_completed") {
     const finalAnswer = typeof payload.final_answer === "string" ? payload.final_answer : message.finalText;
-    return {
-      ...message,
-      finalText: finalAnswer,
-      displayText: finalAnswer,
-      activeRewrite: null,
-      verificationState: "completed",
-    };
+    const rewrittenClaimIds = (((payload.applied_rewrites as Array<{ claim_id?: string }>) ?? [])
+      .map((item) => item.claim_id)
+      .filter(Boolean)) as string[];
+
+    if (message.activeRewrite) {
+      return {
+        ...message,
+        pendingVerificationCompleted: {
+          finalAnswer,
+          rewrittenClaimIds,
+        },
+      };
+    } else {
+      const rewrittenSet = new Set(rewrittenClaimIds);
+      return {
+        ...message,
+        finalText: finalAnswer,
+        displayText: finalAnswer,
+        highlightedSpans: message.highlightedSpans
+          .filter((item) => !rewrittenSet.has(item.claimId))
+          .map((item) => ({ ...item, isActive: false })),
+        activeClaimId: null,
+        activeClaimSpan: null,
+        activeRewrite: null,
+        rewriteQueue: [],
+        verificationState: "completed",
+        pendingVerificationCompleted: null,
+      };
+    }
   }
 
   if (event.event_type === "run_error") {
     return {
       ...message,
       verificationState: "error",
+      activeClaimId: null,
+      activeClaimSpan: null,
       activeRewrite: null,
+      rewriteQueue: [],
+      pendingVerificationCompleted: null,
       verificationError: String(payload.message ?? "Verification run failed."),
     };
   }
 
   return message;
+}
+
+export function completeActiveRewrite(message: DraftMessage): DraftMessage {
+  const completedRewrite = message.activeRewrite;
+  if (!completedRewrite) return message;
+
+  const newFinalText = message.finalText.replace(completedRewrite.oldSpan, completedRewrite.newSpan);
+  const nextHighlights = message.highlightedSpans.filter((item) => item.claimId !== completedRewrite.claimId);
+  const nextRewriteQueue = [...message.rewriteQueue];
+  const nextActiveRewrite = nextRewriteQueue.shift() || null;
+
+  if (!nextActiveRewrite && message.pendingVerificationCompleted) {
+    const finalAnswer = message.pendingVerificationCompleted.finalAnswer;
+    const rewrittenSet = new Set(message.pendingVerificationCompleted.rewrittenClaimIds);
+    return {
+      ...message,
+      finalText: finalAnswer,
+      displayText: finalAnswer,
+      highlightedSpans: nextHighlights
+        .filter((item) => !rewrittenSet.has(item.claimId))
+        .map((item) => ({ ...item, isActive: false })),
+      activeClaimId: null,
+      activeClaimSpan: null,
+      activeRewrite: null,
+      rewriteQueue: [],
+      verificationState: "completed",
+      pendingVerificationCompleted: null,
+    };
+  }
+
+  return {
+    ...message,
+    finalText: newFinalText,
+    displayText: newFinalText,
+    highlightedSpans: nextHighlights,
+    activeRewrite: nextActiveRewrite,
+    rewriteQueue: nextRewriteQueue,
+  };
 }

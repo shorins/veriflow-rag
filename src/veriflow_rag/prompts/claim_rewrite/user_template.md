@@ -32,3 +32,4 @@ source_span: {source_span}
 
 # Task
 Rewrite only the source span so it becomes grounded in the provided evidence.
+Use the same language as the source span and draft answer.

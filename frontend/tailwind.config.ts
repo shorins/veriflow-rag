@@ -24,10 +24,18 @@ const config: Config = {
       boxShadow: {
         panel: "0 10px 30px rgba(24, 24, 27, 0.06)",
       },
+      keyframes: {
+        "claim-pulse": {
+          "0%, 100%": { opacity: "0.5" },
+          "50%": { opacity: "0.9" },
+        },
+      },
+      animation: {
+        "claim-pulse": "claim-pulse 1.6s ease-in-out infinite",
+      },
     },
   },
   plugins: [],
 };
 
 export default config;
-

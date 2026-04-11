@@ -258,13 +258,6 @@ async def start_verification_run(
                     continue
                 rewritten_spans[result.claim_id] = rewritten
                 await emit(
-                    "rewrite_span_erasing",
-                    {
-                        "claim_id": result.claim_id,
-                        "old_span": result.source_span,
-                    },
-                )
-                await emit(
                     "rewrite_span_typing",
                     {
                         "claim_id": result.claim_id,
@@ -280,16 +273,6 @@ async def start_verification_run(
                 claim_results,
                 rewritten_spans,
             )
-            for rewrite in applied_rewrites:
-                await emit(
-                    "rewrite_finished",
-                    {
-                        "claim_id": rewrite.claim_id,
-                        "old_span": rewrite.old_span,
-                        "new_span": rewrite.new_span,
-                        "diff_segments": build_diff_segments(rewrite.old_span, rewrite.new_span),
-                    },
-                )
 
             await emit(
                 "verification_completed",

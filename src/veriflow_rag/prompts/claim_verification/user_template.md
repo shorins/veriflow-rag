@@ -28,3 +28,4 @@ source_span: {source_span}
 # Task
 Verify the claim using only the provided evidence and return one verification result.
 If a sensitivity note is provided, apply it when choosing the status and rewrite decision.
+Write `reason` in the same language as the claim text.

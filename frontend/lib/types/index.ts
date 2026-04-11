@@ -39,7 +39,9 @@ export type HighlightSpan = {
   claimId: string;
   sourceSpan: string;
   status: Exclude<ClaimStatus, "supported">;
+  reason: string;
   revisedText?: string | null;
+  isActive?: boolean;
 };
 
 export type RewriteDiffSegment = {
@@ -77,7 +79,14 @@ export type DraftMessage = {
   faultInjectionSummary: string | null;
   claims: ClaimViewModel[];
   highlightedSpans: HighlightSpan[];
+  activeClaimId: string | null;
+  activeClaimSpan: string | null;
   activeRewrite: RewriteAnimationState;
+  rewriteQueue: RewriteAnimationState[];
+  pendingVerificationCompleted: {
+    finalAnswer: string;
+    rewrittenClaimIds: string[];
+  } | null;
   verificationState: VerificationState;
   verificationError?: string | null;
 };

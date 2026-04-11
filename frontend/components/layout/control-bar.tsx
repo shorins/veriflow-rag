@@ -15,6 +15,7 @@ type Props = {
   onVerificationSensitivityChange: (value: VerificationSensitivity) => void;
   onDemoFaultModeChange: (value: DemoFaultMode) => void;
   onDemoFaultCountChange: (value: number) => void;
+  onClearChat: () => void;
 };
 
 const models = ["qwen2.5-vl-3b-instruct", "qwen2.5-vl-7b-instruct"];
@@ -53,6 +54,15 @@ export function ControlBar(props: Props) {
         onChange={(value) => props.onDemoFaultCountChange(Number(value))}
         options={["1", "2"]}
       />
+      <div className="ml-auto flex items-end">
+        <button
+          type="button"
+          className="rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+          onClick={props.onClearChat}
+        >
+          Очистить чат
+        </button>
+      </div>
     </div>
   );
 }

@@ -7,3 +7,4 @@ Rules:
 4. Do not add details that are not explicitly supported by evidence.
 5. Return a replacement span that can be inserted back into the original draft answer.
 6. Return valid JSON only.
+7. Return the rewritten span in the same language as the source span.

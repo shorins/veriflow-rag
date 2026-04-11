@@ -18,6 +18,7 @@ export default function HomePage() {
   const [verificationSensitivity, setVerificationSensitivity] = useState<VerificationSensitivity>("demo");
   const [demoFaultMode, setDemoFaultMode] = useState<DemoFaultMode>("off");
   const [demoFaultCount, setDemoFaultCount] = useState(1);
+  const [clearChatSignal, setClearChatSignal] = useState(0);
   const [corpusRunState, setCorpusRunState] = useState<"idle" | "running" | "error" | "completed">("idle");
   const [corpusRunLabel, setCorpusRunLabel] = useState<string | null>(null);
 
@@ -124,6 +125,7 @@ export default function HomePage() {
             onVerificationSensitivityChange={setVerificationSensitivity}
             onDemoFaultModeChange={setDemoFaultMode}
             onDemoFaultCountChange={setDemoFaultCount}
+            onClearChat={() => setClearChatSignal((value) => value + 1)}
           />
           <ChatPanel
             draftModel={draftModel}
@@ -132,6 +134,7 @@ export default function HomePage() {
             verificationSensitivity={verificationSensitivity}
             demoFaultMode={demoFaultMode}
             demoFaultCount={demoFaultCount}
+            clearChatSignal={clearChatSignal}
           />
         </div>
       </div>

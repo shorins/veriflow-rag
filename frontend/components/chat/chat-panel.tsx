@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 
 import { createDraft, startVerification } from "@/lib/api/client";
 import { subscribeToVerificationRun } from "@/lib/sse/verification";
-import { applyVerificationEvent, createDraftMessage } from "@/lib/state/message-state";
+import { applyVerificationEvent, createDraftMessage, completeActiveRewrite } from "@/lib/state/message-state";
 import type { DemoFaultMode, DraftMessage, DraftStrategy, VerificationSensitivity } from "@/lib/types";
 import { RewriteAnimator } from "@/components/chat/rewrite-animator";
 
@@ -16,6 +16,7 @@ type Props = {
   verificationSensitivity: VerificationSensitivity;
   demoFaultMode: DemoFaultMode;
   demoFaultCount: number;
+  clearChatSignal: number;
 };
 
 export function ChatPanel(props: Props) {
@@ -44,6 +45,18 @@ export function ChatPanel(props: Props) {
       // Ignore persistence failures in private/incognito contexts.
     }
   }, [messages]);
+
+  useEffect(() => {
+    if (props.clearChatSignal === 0) {
+      return;
+    }
+    setMessages([]);
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch {
+      // Ignore storage failures and still clear in-memory state.
+    }
+  }, [props.clearChatSignal]);
 
   const canSubmit = query.trim().length > 0 && !isSubmitting;
 
@@ -173,6 +186,13 @@ export function ChatPanel(props: Props) {
                   text={message.displayText}
                   highlights={message.highlightedSpans}
                   animation={message.activeRewrite}
+                  activeClaimId={message.activeClaimId}
+                  activeClaimSpan={message.activeClaimSpan}
+                  onComplete={() => {
+                    setMessages((current) =>
+                      current.map((item) => (item.id === message.id ? completeActiveRewrite(item) : item)),
+                    );
+                  }}
                 />
               </div>
             </div>
