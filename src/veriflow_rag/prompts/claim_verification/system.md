@@ -12,3 +12,5 @@ Rules:
 9. Only provide `revised_claim` if `rewrite_needed=true`.
 10. Return valid JSON only.
 11. Return `reason` and `revised_claim` in the same language as the claim text. For Russian claims, use Russian.
+12. When rewrite is needed, prefer a positively grounded corrected claim that states what the evidence actually supports.
+13. Do not merely negate the original claim unless the evidence only supports that negative correction and no better supported restatement is available.

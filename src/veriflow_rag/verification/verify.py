@@ -62,6 +62,7 @@ class ClaimVerifier:
             claim_id=raw.claim_id or claim.claim_id,
             claim_text=raw.claim_text.strip() or claim.claim_text,
             source_span=claim.source_span,
+            rewrite_source_span=claim.source_span,
             source_sentence_index=claim.source_sentence_index,
             status=raw.status,
             reason=raw.reason.strip(),

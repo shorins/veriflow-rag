@@ -31,6 +31,7 @@ class ClaimVerificationResult(BaseModel):
     claim_id: str
     claim_text: str
     source_span: str
+    rewrite_source_span: str | None = None
     source_sentence_index: int
     status: ClaimStatus
     reason: str
@@ -65,6 +66,7 @@ class AppliedRewrite(BaseModel):
     claim_id: str
     old_span: str
     new_span: str
+    rewrite_source_span: str | None = None
     status_before: ClaimStatus
 
 

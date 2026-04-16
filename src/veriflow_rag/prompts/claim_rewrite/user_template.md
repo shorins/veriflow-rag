@@ -16,9 +16,9 @@ source_span: {source_span}
 </reason>
 
 # Proposed claim
-<proposed_claim>
+<optional_rewrite_hint>
 {proposed_claim}
-</proposed_claim>
+</optional_rewrite_hint>
 
 # Evidence
 <evidence>
@@ -33,3 +33,4 @@ source_span: {source_span}
 # Task
 Rewrite only the source span so it becomes grounded in the provided evidence.
 Use the same language as the source span and draft answer.
+Treat the optional rewrite hint only as a hint. Prefer to state what the evidence positively supports.

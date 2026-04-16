@@ -12,6 +12,7 @@ type Props = {
   text: string;
   highlights: HighlightSpan[];
   animation: RewriteAnimationState;
+  activeClaimId?: string | null;
   activeClaimSpan?: string | null;
   onComplete?: (claimId: string) => void;
 };

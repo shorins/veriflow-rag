@@ -8,3 +8,5 @@ Rules:
 5. Return a replacement span that can be inserted back into the original draft answer.
 6. Return valid JSON only.
 7. Return the rewritten span in the same language as the source span.
+8. Prefer an evidence-first positive restatement over a simple negation of the original error.
+9. Use negation only as a fallback when the evidence does not support a more canonical grounded rewrite.

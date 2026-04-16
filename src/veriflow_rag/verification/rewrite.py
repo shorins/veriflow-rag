@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from veriflow_rag.core.config import AppConfig, VerificationSensitivity, get_config
 from veriflow_rag.synthesis.client import LMStudioChatClient
 from veriflow_rag.synthesis.models import PreparedEvidence
-from veriflow_rag.verification.claims import find_span_range
+from veriflow_rag.verification.claims import find_span_range, split_sentences
 from veriflow_rag.verification.llm import StructuredLLMRunner
 from veriflow_rag.verification.models import (
     AppliedRewrite,
@@ -101,6 +101,82 @@ def should_trigger_rewrite(
     return RewriteDecision(triggered, partial_ratio, problem_span_ratio)
 
 
+def select_rewrite_span(draft_answer: str, claim_result: ClaimVerificationResult) -> str:
+    source_span = (claim_result.source_span or "").strip()
+    if not draft_answer.strip() or not source_span:
+        return source_span
+
+    normalized_claim = claim_result.claim_text.lower()
+    expand_markers = (
+        "является",
+        "относится к",
+        "включает",
+        "этап",
+        "процесс",
+        "обязатель",
+        "вспомогатель",
+        "различ",
+        "перечис",
+    )
+    should_expand = any(marker in normalized_claim for marker in expand_markers) or "," in claim_result.claim_text
+    if not should_expand:
+        return source_span
+
+    sentences = split_sentences(draft_answer)
+    if not sentences:
+        return source_span
+
+    sentence_index = max(0, claim_result.source_sentence_index - 1)
+    if sentence_index >= len(sentences):
+        return source_span
+
+    selected = [sentences[sentence_index]]
+    if sentence_index + 1 < len(sentences):
+        next_sentence = sentences[sentence_index + 1]
+        if len(next_sentence) <= 240:
+            selected.append(next_sentence)
+    expanded = " ".join(part.strip() for part in selected if part.strip()).strip()
+    return expanded or source_span
+
+
+def prioritize_rewrite_evidence(
+    evidence_blocks: list[PreparedEvidence],
+    used_evidence_ids: list[str],
+    *,
+    max_chars: int,
+) -> list[PreparedEvidence]:
+    if not evidence_blocks:
+        return []
+
+    preferred = [item for item in evidence_blocks if item.evidence_id in set(used_evidence_ids)]
+    remainder = [item for item in evidence_blocks if item.evidence_id not in set(used_evidence_ids)]
+    ordered = preferred + remainder
+
+    prepared: list[PreparedEvidence] = []
+    for item in ordered:
+        text = item.block.expanded_text.strip()
+        if len(text) > max_chars:
+            text = text[:max_chars].rstrip() + "..."
+        prepared.append(
+            PreparedEvidence(
+                evidence_id=item.evidence_id,
+                block=item.block,
+                prompt_text=(
+                    f"<evidence_item id=\"{item.evidence_id}\">\n"
+                    f"<metadata>\n"
+                    f"file_name: {item.block.file_name}\n"
+                    f"section_title: {item.block.section_title}\n"
+                    f"page_span: {item.block.page_span}\n"
+                    f"confidence: {item.block.confidence_label}\n"
+                    f"</metadata>\n"
+                    f"<content>\n{text}\n</content>\n"
+                    f"</evidence_item>"
+                ),
+            )
+        )
+    return prepared
+
+
 class ClaimRewriter:
     def __init__(self, config: AppConfig, client: LMStudioChatClient | None = None) -> None:
         self.config = config
@@ -114,14 +190,20 @@ class ClaimRewriter:
         claim_result: ClaimVerificationResult,
         evidence_blocks: list[PreparedEvidence],
     ) -> str:
-        evidence_xml = "\n\n".join(item.prompt_text for item in evidence_blocks)
+        rewrite_span = claim_result.rewrite_source_span or claim_result.source_span
+        prioritized = prioritize_rewrite_evidence(
+            evidence_blocks,
+            claim_result.used_evidence_ids,
+            max_chars=max(self.config.verification_max_evidence_chars + 300, self.config.verification_max_evidence_chars),
+        )
+        evidence_xml = "\n\n".join(item.prompt_text for item in prioritized)
         schema_json = json.dumps(self.prompt_artifacts.output_schema, ensure_ascii=False, indent=2)
         user_prompt = render_user_prompt(
             self.prompt_artifacts.user_template,
             draft_answer=draft_answer,
             claim_id=claim_result.claim_id,
             claim_text=claim_result.claim_text,
-            source_span=claim_result.source_span,
+            source_span=rewrite_span,
             reason=claim_result.reason,
             proposed_claim=claim_result.revised_claim or "",
             evidence=evidence_xml,
@@ -150,7 +232,8 @@ def apply_rewrites(
     for result in claim_results:
         if not rewritten_spans.get(result.claim_id):
             continue
-        span_range = find_span_range(draft_answer, result.source_span)
+        target_span = result.rewrite_source_span or result.source_span
+        span_range = find_span_range(draft_answer, target_span)
         if span_range is None:
             continue
         candidates.append((priority.get(result.status, 99), span_range[0], span_range[1], result))
@@ -177,6 +260,7 @@ def apply_rewrites(
                 claim_id=result.claim_id,
                 old_span=draft_answer[start:end],
                 new_span=new_span,
+                rewrite_source_span=result.rewrite_source_span or result.source_span,
                 status_before=result.status,
             )
         )

@@ -15,7 +15,12 @@ from veriflow_rag.ui.render import (
     render_rewrite_diff,
 )
 from veriflow_rag.verification.orchestrator import build_verification_orchestrator
-from veriflow_rag.verification.rewrite import apply_rewrites, select_verification_profile, should_trigger_rewrite
+from veriflow_rag.verification.rewrite import (
+    apply_rewrites,
+    select_rewrite_span,
+    select_verification_profile,
+    should_trigger_rewrite,
+)
 
 
 SESSION_DRAFT_BUNDLE = "draft_bundle"
@@ -32,6 +37,10 @@ SETTINGS_DRAFT_STRATEGY = "draft_strategy"
 SETTINGS_VERIFICATION_SENSITIVITY = "verification_sensitivity"
 SETTINGS_DEMO_FAULT_MODE = "demo_fault_mode"
 SETTINGS_DEMO_FAULT_COUNT = "demo_fault_count"
+
+
+def _normalize_span(text: str | None) -> str:
+    return " ".join((text or "").split()).strip().lower()
 
 
 def _base_config() -> AppConfig:
@@ -331,11 +340,14 @@ async def run_agent_verification(action: cl.Action) -> None:
                 claim,
                 prepared,
             )
+            result.rewrite_source_span = select_rewrite_span(draft_answer, result)
             if (
                 injected_spans
                 and result.status != "supported"
                 and any(
-                    injected.injected_span == result.source_span or injected.injected_span == result.claim_text
+                    _normalize_span(injected.injected_span) == _normalize_span(result.source_span)
+                    or _normalize_span(injected.injected_span) == _normalize_span(result.claim_text)
+                    or _normalize_span(injected.injected_span) == _normalize_span(result.rewrite_source_span)
                     for injected in injected_spans
                 )
             ):
@@ -360,7 +372,11 @@ async def run_agent_verification(action: cl.Action) -> None:
         rewritten_spans: dict[str, str] = {}
         force_rewrite = any(
             result.status != "supported"
-            and any(injected.injected_span == result.source_span for injected in injected_spans)
+            and any(
+                _normalize_span(injected.injected_span) == _normalize_span(result.source_span)
+                or _normalize_span(injected.injected_span) == _normalize_span(result.rewrite_source_span)
+                for injected in injected_spans
+            )
             for result in claim_results
         )
 

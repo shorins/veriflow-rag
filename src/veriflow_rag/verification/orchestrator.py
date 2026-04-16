@@ -16,6 +16,7 @@ from veriflow_rag.verification.retrieval import ClaimRetrievalService
 from veriflow_rag.verification.rewrite import (
     ClaimRewriter,
     apply_rewrites,
+    select_rewrite_span,
     select_verification_profile,
     should_trigger_rewrite,
 )
@@ -55,6 +56,7 @@ class VerificationOrchestrator:
             prepared = self.retrieval_service.prepare_claim_evidence(evidence_blocks)
             claim_evidence_map[claim.claim_id] = prepared
             result = self.claim_verifier.verify_claim(claim, prepared)
+            result.rewrite_source_span = select_rewrite_span(draft_answer, result)
             claim_results.append(result)
 
         verification_profile = select_verification_profile(self.config)

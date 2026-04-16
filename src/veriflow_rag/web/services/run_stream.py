@@ -13,7 +13,7 @@ from veriflow_rag.synthesis.models import Citation, SynthesizedAnswer, Synthesis
 from veriflow_rag.synthesis.service import build_synthesis_service
 from veriflow_rag.verification.models import ClaimVerificationResult
 from veriflow_rag.verification.orchestrator import build_verification_orchestrator
-from veriflow_rag.verification.rewrite import apply_rewrites
+from veriflow_rag.verification.rewrite import apply_rewrites, select_rewrite_span
 from veriflow_rag.web.schemas import RunEvent
 from veriflow_rag.web.services.document_registry import DocumentRegistry
 
@@ -199,6 +199,10 @@ async def start_verification_run(
                     claim,
                     prepared,
                 )
+                result.rewrite_source_span = select_rewrite_span(
+                    message_record.bundle.synthesized_answer.answer,
+                    result,
+                )
                 injected_spans = message_record.bundle.synthesized_answer.fault_injection_spans
                 normalized_source_span = _normalize_span(result.source_span)
                 normalized_claim_text = _normalize_span(result.claim_text)
@@ -225,6 +229,7 @@ async def start_verification_run(
                         "used_evidence_ids": result.used_evidence_ids,
                         "rewrite_needed": result.rewrite_needed,
                         "source_span": result.source_span,
+                        "rewrite_source_span": result.rewrite_source_span,
                         "revised_claim": result.revised_claim,
                     },
                 )
@@ -244,7 +249,7 @@ async def start_verification_run(
                     "rewrite_started",
                     {
                         "claim_id": result.claim_id,
-                        "old_span": result.source_span,
+                        "old_span": result.rewrite_source_span or result.source_span,
                     },
                 )
                 prepared = claim_evidence_map.get(result.claim_id, [])
@@ -261,9 +266,12 @@ async def start_verification_run(
                     "rewrite_span_typing",
                     {
                         "claim_id": result.claim_id,
-                        "old_span": result.source_span,
+                        "old_span": result.rewrite_source_span or result.source_span,
                         "new_span": rewritten,
-                        "diff_segments": build_diff_segments(result.source_span, rewritten),
+                        "diff_segments": build_diff_segments(
+                            result.rewrite_source_span or result.source_span,
+                            rewritten,
+                        ),
                     },
                 )
 

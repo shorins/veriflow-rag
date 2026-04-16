@@ -8,7 +8,12 @@ from veriflow_rag.verification.models import (
     VerificationRunResult,
 )
 from veriflow_rag.verification.orchestrator import VerificationOrchestrator
-from veriflow_rag.verification.rewrite import apply_rewrites, select_verification_profile, should_trigger_rewrite
+from veriflow_rag.verification.rewrite import (
+    apply_rewrites,
+    select_rewrite_span,
+    select_verification_profile,
+    should_trigger_rewrite,
+)
 
 
 class FakeClaimExtractor:
@@ -111,6 +116,7 @@ class VerificationPipelineTests(unittest.TestCase):
                 claim_id="c1",
                 claim_text="Alpha.",
                 source_span="Alpha.",
+                rewrite_source_span="Alpha.",
                 source_sentence_index=1,
                 status="unsupported",
                 reason="wrong",
@@ -121,6 +127,7 @@ class VerificationPipelineTests(unittest.TestCase):
                 claim_id="c2",
                 claim_text="Beta.",
                 source_span="Beta.",
+                rewrite_source_span="Beta.",
                 source_sentence_index=2,
                 status="partial",
                 reason="partial",
@@ -143,6 +150,7 @@ class VerificationPipelineTests(unittest.TestCase):
                 claim_id="c1",
                 claim_text="Alpha Beta",
                 source_span="Alpha Beta",
+                rewrite_source_span="Alpha Beta",
                 source_sentence_index=1,
                 status="unsupported",
                 reason="wrong",
@@ -153,6 +161,7 @@ class VerificationPipelineTests(unittest.TestCase):
                 claim_id="c2",
                 claim_text="Beta Gamma",
                 source_span="Beta Gamma",
+                rewrite_source_span="Beta Gamma",
                 source_sentence_index=1,
                 status="partial",
                 reason="partial",
@@ -179,6 +188,7 @@ class VerificationPipelineTests(unittest.TestCase):
             claim_id="c1",
             claim_text="Alpha.",
             source_span="Alpha.",
+            rewrite_source_span="Alpha.",
             source_sentence_index=1,
             status="unsupported",
             reason="Not supported",
@@ -234,6 +244,61 @@ class VerificationPipelineTests(unittest.TestCase):
         self.assertEqual(result.final_answer, "Gamma. Beta.")
         self.assertTrue(result.rewrite_triggered)
         self.assertEqual(len(result.applied_rewrites), 1)
+
+    def test_select_rewrite_span_can_expand_to_sentence_window(self) -> None:
+        draft = "Аудит системы ошибочно назван обязательным этапом. В документах аудит описывается отдельно."
+        result = ClaimVerificationResult(
+            claim_id="c1",
+            claim_text="Аудит системы является обязательным этапом.",
+            source_span="Аудит системы ошибочно назван обязательным этапом.",
+            source_sentence_index=1,
+            status="unsupported",
+            reason="wrong",
+            used_evidence_ids=[],
+            rewrite_needed=True,
+        )
+
+        selected = select_rewrite_span(draft, result)
+        self.assertIn("Аудит системы ошибочно назван обязательным этапом.", selected)
+        self.assertIn("В документах аудит описывается отдельно.", selected)
+
+    def test_apply_rewrites_prefers_expanded_rewrite_span(self) -> None:
+        draft = "Также к обязательным этапам относится аудит системы. В документах аудит описывается как вспомогательный процесс."
+        claim_results = [
+            ClaimVerificationResult(
+                claim_id="c1",
+                claim_text="Аудит системы относится к обязательным этапам.",
+                source_span="Также к обязательным этапам относится аудит системы.",
+                rewrite_source_span=(
+                    "Также к обязательным этапам относится аудит системы. "
+                    "В документах аудит описывается как вспомогательный процесс."
+                ),
+                source_sentence_index=1,
+                status="unsupported",
+                reason="В evidence аудит отнесён к вспомогательным процессам.",
+                used_evidence_ids=["ev_1"],
+                rewrite_needed=True,
+                revised_claim="Аудит системы относится к вспомогательным процессам жизненного цикла.",
+            )
+        ]
+
+        final_answer, rewrites = apply_rewrites(
+            draft_answer=draft,
+            claim_results=claim_results,
+            rewritten_spans={
+                "c1": "Аудит системы относится к вспомогательным процессам жизненного цикла."
+            },
+        )
+
+        self.assertEqual(
+            final_answer,
+            "Аудит системы относится к вспомогательным процессам жизненного цикла.",
+        )
+        self.assertEqual(len(rewrites), 1)
+        self.assertEqual(
+            rewrites[0].rewrite_source_span,
+            claim_results[0].rewrite_source_span,
+        )
 
 
 if __name__ == "__main__":
