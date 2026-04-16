@@ -3,13 +3,14 @@ import type { VerificationEvent } from "@/lib/types";
 
 export function subscribeToVerificationRun(
   runId: string,
+  uiTestMode: boolean,
   handlers: {
     onEvent: (event: VerificationEvent) => void;
     onError: (error: Event) => void;
     onDone: () => void;
   },
 ): () => void {
-  const source = createRunEventSource(runId);
+  const source = createRunEventSource(runId, uiTestMode);
   const eventTypes = [
     "verification_started",
     "claims_extracted",
@@ -44,4 +45,3 @@ export function subscribeToVerificationRun(
 
   return () => source.close();
 }
-

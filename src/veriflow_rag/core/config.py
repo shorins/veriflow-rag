@@ -35,6 +35,7 @@ class AppConfig(BaseSettings):
     report_dir: Path = Field(default_factory=lambda: Path.cwd() / "reports")
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+    web_ui_test_mode: bool = False
     cors_allowed_origins: Tuple[str, ...] = (
         "http://localhost:3000",
         "http://127.0.0.1:3000",

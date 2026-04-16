@@ -9,6 +9,7 @@ type Props = {
   verificationSensitivity: VerificationSensitivity;
   demoFaultMode: DemoFaultMode;
   demoFaultCount: number;
+  uiTestMode: boolean;
   onDraftModelChange: (value: string) => void;
   onVerificationModelChange: (value: string) => void;
   onDraftStrategyChange: (value: DraftStrategy) => void;
@@ -23,6 +24,11 @@ const models = ["qwen2.5-vl-3b-instruct", "qwen2.5-vl-7b-instruct"];
 export function ControlBar(props: Props) {
   return (
     <div className="sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-2xl border border-stone-200 bg-panel/90 px-4 py-3 shadow-panel backdrop-blur">
+      {props.uiTestMode ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+          UI Test Mode · Mock backend, no model calls
+        </div>
+      ) : null}
       <ControlSelect label="Draft model" value={props.draftModel} onChange={props.onDraftModelChange} options={models} />
       <ControlSelect
         label="Verification model"

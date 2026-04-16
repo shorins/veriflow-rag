@@ -16,6 +16,7 @@ type Props = {
   verificationSensitivity: VerificationSensitivity;
   demoFaultMode: DemoFaultMode;
   demoFaultCount: number;
+  uiTestMode: boolean;
   clearChatSignal: number;
 };
 
@@ -23,20 +24,21 @@ export function ChatPanel(props: Props) {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<DraftMessage[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const storageKey = "trustrag-chat-history-v2";
+  const storageKey = props.uiTestMode ? "trustrag-chat-history-v2-ui-test" : "trustrag-chat-history-v2";
 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(storageKey);
       if (!raw) {
+        setMessages([]);
         return;
       }
       const parsed = JSON.parse(raw) as DraftMessage[];
       setMessages(parsed);
     } catch {
-      // Ignore corrupted local state and start with a clean thread.
+      setMessages([]);
     }
-  }, []);
+  }, [storageKey]);
 
   useEffect(() => {
     try {
@@ -73,6 +75,7 @@ export function ChatPanel(props: Props) {
         verification_sensitivity: props.verificationSensitivity,
         demo_fault_mode: props.demoFaultMode,
         demo_fault_count: props.demoFaultCount,
+        ui_test_mode: props.uiTestMode,
       });
       const message = createDraftMessage({
         id: response.message_id,
@@ -109,13 +112,14 @@ export function ChatPanel(props: Props) {
       verification_sensitivity: message.verificationSensitivity,
       demo_fault_mode: message.demoFaultMode,
       demo_fault_count: message.demoFaultCount,
+      ui_test_mode: props.uiTestMode,
     });
 
     setMessages((current) =>
       current.map((item) => (item.id === message.id ? { ...item, verificationState: "running" } : item)),
     );
 
-    subscribeToVerificationRun(start.run_id, {
+    subscribeToVerificationRun(start.run_id, props.uiTestMode, {
       onEvent: (event) => {
         setMessages((current) =>
           current.map((item) => (item.id === message.id ? applyVerificationEvent(item, event) : item)),

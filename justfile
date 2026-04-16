@@ -60,6 +60,9 @@ ui-web:
 web-dev:
     trap 'kill 0' EXIT; {{poetry}} run uvicorn veriflow_rag.web.app:app --host 127.0.0.1 --port 8000 --reload & (cd frontend && npm run dev)
 
+web-ui-test:
+    trap 'kill 0' EXIT; VERIFLOW_WEB_UI_TEST_MODE=true {{poetry}} run uvicorn veriflow_rag.web.app:app --host 127.0.0.1 --port 8000 --reload & (cd frontend && npm run dev)
+
 lmstudio-models:
     curl -sS http://127.0.0.1:1234/v1/models
 

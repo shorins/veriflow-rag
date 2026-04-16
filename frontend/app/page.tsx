@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { DocumentSidebar } from "@/components/documents/document-sidebar";
@@ -12,6 +12,7 @@ import type { DemoFaultMode, DraftStrategy, VerificationSensitivity } from "@/li
 
 export default function HomePage() {
   const queryClient = useQueryClient();
+  const [uiTestMode, setUiTestMode] = useState(false);
   const [draftModel, setDraftModel] = useState("qwen2.5-vl-3b-instruct");
   const [verificationModel, setVerificationModel] = useState("qwen2.5-vl-7b-instruct");
   const [draftStrategy, setDraftStrategy] = useState<DraftStrategy>("demo");
@@ -21,6 +22,10 @@ export default function HomePage() {
   const [clearChatSignal, setClearChatSignal] = useState(0);
   const [corpusRunState, setCorpusRunState] = useState<"idle" | "running" | "error" | "completed">("idle");
   const [corpusRunLabel, setCorpusRunLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    setUiTestMode(new URLSearchParams(window.location.search).get("uiTest") === "1");
+  }, []);
 
   const documentsQuery = useQuery({
     queryKey: ["documents"],
@@ -119,6 +124,7 @@ export default function HomePage() {
             verificationSensitivity={verificationSensitivity}
             demoFaultMode={demoFaultMode}
             demoFaultCount={demoFaultCount}
+            uiTestMode={uiTestMode}
             onDraftModelChange={setDraftModel}
             onVerificationModelChange={setVerificationModel}
             onDraftStrategyChange={setDraftStrategy}
@@ -134,6 +140,7 @@ export default function HomePage() {
             verificationSensitivity={verificationSensitivity}
             demoFaultMode={demoFaultMode}
             demoFaultCount={demoFaultCount}
+            uiTestMode={uiTestMode}
             clearChatSignal={clearChatSignal}
           />
         </div>
