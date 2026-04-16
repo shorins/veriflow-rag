@@ -25,3 +25,14 @@ class FaultInjectionResult(BaseModel):
     summary: str | None = None
     answer: str | None = None
     spans: list[InjectedFaultSpan] = Field(default_factory=list)
+
+
+class RawInjectedFaultSpan(BaseModel):
+    fault_type: DemoFaultType
+    source_sentence_index: int
+    original_span: str
+    injected_span: str
+
+
+class RawFaultInjectionPlan(BaseModel):
+    faults: list[RawInjectedFaultSpan] = Field(default_factory=list)

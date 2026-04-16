@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef } from "react";
 
+import { findSpanRange } from "@/lib/text/find-span-range";
 import type { HighlightSpan, RewriteAnimationState } from "@/lib/types";
 
 type RenderHighlightSpan = HighlightSpan & {
@@ -31,26 +32,31 @@ export function RewriteAnimator({ text, highlights, animation, activeClaimId, ac
     const before = text;
     const oldSpan = animation.oldSpan;
     const newSpan = animation.newSpan;
-    const startIndex = before.indexOf(oldSpan);
-    if (startIndex === -1) {
+    const spanRange = findSpanRange(before, oldSpan);
+    if (!spanRange) {
       setDisplayText(text);
+      if (onCompleteRef.current) {
+        onCompleteRef.current(animation.claimId);
+      }
       return;
     }
+    const [startIndex, endIndex] = spanRange;
 
     const prefix = before.slice(0, startIndex);
-    const suffix = before.slice(startIndex + oldSpan.length);
-    let eraseIndex = oldSpan.length;
+    const matchedOldSpan = before.slice(startIndex, endIndex);
+    const suffix = before.slice(endIndex);
+    let eraseIndex = matchedOldSpan.length;
     let typeIndex = 0;
     let typeTimer: number | null = null;
 
     if (animation.phase === "done") {
-      setDisplayText(before.replace(oldSpan, newSpan));
+      setDisplayText(prefix + newSpan + suffix);
       return;
     }
 
     const eraseTimer = window.setInterval(() => {
       eraseIndex -= 1;
-      setDisplayText(prefix + oldSpan.slice(0, Math.max(eraseIndex, 0)) + suffix);
+      setDisplayText(prefix + matchedOldSpan.slice(0, Math.max(eraseIndex, 0)) + suffix);
       if (eraseIndex <= 0) {
         window.clearInterval(eraseTimer);
         if (animation.phase === "erasing") {
@@ -123,8 +129,8 @@ function HighlightedText({
     () =>
       ([...highlights, ...(temporaryActiveHighlight ? [temporaryActiveHighlight] : [])] as RenderHighlightSpan[])
         .map((item) => {
-          const index = text.indexOf(item.sourceSpan);
-          return { ...item, index };
+          const spanRange = findSpanRange(text, item.sourceSpan);
+          return { ...item, index: spanRange?.[0] ?? -1, end: spanRange?.[1] ?? -1 };
         })
         .filter((item) => item.index >= 0)
         .sort((a, b) => a.index - b.index),
@@ -141,7 +147,7 @@ function HighlightedText({
     if (item.index > cursor) {
       parts.push(<span key={`${item.claimId}-before`}>{text.slice(cursor, item.index)}</span>);
     }
-    const value = text.slice(item.index, item.index + item.sourceSpan.length);
+    const value = text.slice(item.index, item.end);
     const badgeClass = item.temporary
       ? "rounded-md bg-stone-300/55 px-1 py-0.5 animate-claim-pulse"
       : item.status === "partial"
@@ -166,7 +172,7 @@ function HighlightedText({
         </span>
       </span>,
     );
-    cursor = item.index + item.sourceSpan.length;
+    cursor = item.end;
   }
   if (cursor < text.length) {
     parts.push(<span key="tail">{text.slice(cursor)}</span>);

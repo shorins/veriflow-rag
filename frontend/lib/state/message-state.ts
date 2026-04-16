@@ -1,3 +1,4 @@
+import { findSpanRange } from "@/lib/text/find-span-range";
 import type { ClaimViewModel, DraftMessage, HighlightSpan, VerificationEvent } from "@/lib/types";
 
 function claimStatusToHighlightStatus(status: ClaimViewModel["status"]): HighlightSpan["status"] | null {
@@ -114,17 +115,16 @@ export function applyVerificationEvent(message: DraftMessage, event: Verificatio
       ...message,
       claims: [...message.claims.filter((item) => item.claim_id !== claim.claim_id), claim],
       highlightedSpans,
-      activeRewrite:
-        claim.rewrite_needed && claim.revised_claim
-          ? {
-              claimId: claim.claim_id,
-              oldSpan: claim.source_span,
-              newSpan: claim.revised_claim,
-              diffSegments: [],
-              phase: "erasing",
-            }
-          : message.activeRewrite,
-      verificationState: claim.rewrite_needed ? "rewriting" : "running",
+      verificationState: "running",
+    };
+  }
+
+  if (event.event_type === "rewrite_started") {
+    return {
+      ...message,
+      verificationState: "rewriting",
+      activeClaimId: null,
+      activeClaimSpan: null,
     };
   }
 
@@ -143,13 +143,31 @@ export function applyVerificationEvent(message: DraftMessage, event: Verificatio
         activeRewrite: newTask,
         verificationState: "rewriting",
       };
-    } else {
+    }
+
+    if (message.activeRewrite.claimId === newTask.claimId) {
       return {
         ...message,
-        rewriteQueue: [...message.rewriteQueue, newTask],
+        activeRewrite: newTask,
         verificationState: "rewriting",
       };
     }
+
+    return {
+      ...message,
+      rewriteQueue: [...message.rewriteQueue, newTask],
+      verificationState: "rewriting",
+    };
+  }
+
+  if (event.event_type === "rewrite_finished") {
+    if (!message.activeRewrite || message.activeRewrite.claimId !== String(payload.claim_id)) {
+      return {
+        ...message,
+        verificationState: "rewriting",
+      };
+    }
+    return completeActiveRewrite(message);
   }
 
   if (event.event_type === "verification_completed") {
@@ -205,7 +223,10 @@ export function completeActiveRewrite(message: DraftMessage): DraftMessage {
   const completedRewrite = message.activeRewrite;
   if (!completedRewrite) return message;
 
-  const newFinalText = message.finalText.replace(completedRewrite.oldSpan, completedRewrite.newSpan);
+  const spanRange = findSpanRange(message.finalText, completedRewrite.oldSpan);
+  const newFinalText = spanRange
+    ? message.finalText.slice(0, spanRange[0]) + completedRewrite.newSpan + message.finalText.slice(spanRange[1])
+    : message.finalText;
   const nextHighlights = message.highlightedSpans.filter((item) => item.claimId !== completedRewrite.claimId);
   const nextRewriteQueue = [...message.rewriteQueue];
   const nextActiveRewrite = nextRewriteQueue.shift() || null;

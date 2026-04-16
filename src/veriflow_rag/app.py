@@ -6,6 +6,7 @@ import chainlit as cl
 from chainlit.input_widget import Select
 
 from veriflow_rag.core.config import AppConfig, get_config
+from veriflow_rag.demo.fault_injection import apply_demo_verification_override, merge_injected_claims
 from veriflow_rag.synthesis.client import LMStudioClientError
 from veriflow_rag.synthesis.models import SynthesisResultBundle
 from veriflow_rag.synthesis.service import build_synthesis_service
@@ -319,6 +320,11 @@ async def run_agent_verification(action: cl.Action) -> None:
         progress.content = "## Агентная проверка\n\nИзвлечение claims..."
         await progress.update()
         claims = await asyncio.to_thread(orchestrator.claim_extractor.extract_claims, draft_answer)
+        claims = merge_injected_claims(
+            draft_answer=draft_answer,
+            claims=claims,
+            injected_spans=draft_bundle.synthesized_answer.fault_injection_spans,
+        )
         claims_msg.content = render_claim_table([])
         await claims_msg.update()
 
@@ -339,6 +345,10 @@ async def run_agent_verification(action: cl.Action) -> None:
                 orchestrator.claim_verifier.verify_claim,
                 claim,
                 prepared,
+            )
+            result = apply_demo_verification_override(
+                result,
+                draft_bundle.synthesized_answer.fault_injection_spans,
             )
             result.rewrite_source_span = select_rewrite_span(draft_answer, result)
             if (

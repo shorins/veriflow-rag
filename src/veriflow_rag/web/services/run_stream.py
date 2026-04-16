@@ -9,6 +9,7 @@ from typing import AsyncIterator
 from uuid import uuid4
 
 from veriflow_rag.core.config import AppConfig
+from veriflow_rag.demo.fault_injection import apply_demo_verification_override, merge_injected_claims
 from veriflow_rag.synthesis.models import Citation, SynthesizedAnswer, SynthesisResultBundle
 from veriflow_rag.synthesis.service import build_synthesis_service
 from veriflow_rag.verification.models import ClaimVerificationResult
@@ -166,6 +167,11 @@ async def start_verification_run(
                 orchestrator.claim_extractor.extract_claims,
                 message_record.bundle.synthesized_answer.answer,
             )
+            claims = merge_injected_claims(
+                draft_answer=message_record.bundle.synthesized_answer.answer,
+                claims=claims,
+                injected_spans=message_record.bundle.synthesized_answer.fault_injection_spans,
+            )
             await emit(
                 "claims_extracted",
                 {
@@ -199,6 +205,7 @@ async def start_verification_run(
                     claim,
                     prepared,
                 )
+                result = apply_demo_verification_override(result, message_record.bundle.synthesized_answer.fault_injection_spans)
                 result.rewrite_source_span = select_rewrite_span(
                     message_record.bundle.synthesized_answer.answer,
                     result,

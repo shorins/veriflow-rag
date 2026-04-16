@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "properties": {
+    "faults": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fault_type": {
+            "type": "string",
+            "enum": [
+              "overgeneralization",
+              "list_swap",
+              "category_mix",
+              "unsupported_detail"
+            ]
+          },
+          "source_sentence_index": {
+            "type": "integer"
+          },
+          "original_span": {
+            "type": "string"
+          },
+          "injected_span": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fault_type",
+          "source_sentence_index",
+          "original_span",
+          "injected_span"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "faults"
+  ],
+  "additionalProperties": false
+}

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from veriflow_rag.core.config import AppConfig, get_config
+from veriflow_rag.demo.fault_injection import apply_demo_verification_override, merge_injected_claims
 from veriflow_rag.synthesis.client import LMStudioChatClient
 from veriflow_rag.synthesis.models import SynthesisResultBundle
 from veriflow_rag.ui.render import render_highlighted_answer
@@ -47,6 +48,11 @@ class VerificationOrchestrator:
         draft_answer = draft_bundle.synthesized_answer.answer
         emit("Извлечение claims")
         claims = self.claim_extractor.extract_claims(draft_answer)
+        claims = merge_injected_claims(
+            draft_answer=draft_answer,
+            claims=claims,
+            injected_spans=draft_bundle.synthesized_answer.fault_injection_spans,
+        )
 
         claim_results: list[ClaimVerificationResult] = []
         claim_evidence_map: dict[str, list] = {}
@@ -56,6 +62,10 @@ class VerificationOrchestrator:
             prepared = self.retrieval_service.prepare_claim_evidence(evidence_blocks)
             claim_evidence_map[claim.claim_id] = prepared
             result = self.claim_verifier.verify_claim(claim, prepared)
+            result = apply_demo_verification_override(
+                result,
+                draft_bundle.synthesized_answer.fault_injection_spans,
+            )
             result.rewrite_source_span = select_rewrite_span(draft_answer, result)
             claim_results.append(result)
 

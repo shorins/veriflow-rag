@@ -422,6 +422,8 @@ class AnswerSynthesisService:
 
     def _maybe_apply_demo_faults(
         self,
+        query: str,
+        prepared: list[PreparedEvidence],
         answer: SynthesizedAnswer,
     ) -> SynthesizedAnswer:
         demo_fault_mode = getattr(self.config, "demo_fault_mode", "off")
@@ -434,6 +436,10 @@ class AnswerSynthesisService:
             answer=answer.answer,
             mode=demo_fault_mode,
             count=getattr(self.config, "demo_fault_count", 1),
+            query=query,
+            evidence_blocks=prepared,
+            config=self.config,
+            client=self.client,
         )
         if not injection.active or not injection.answer:
             return answer
@@ -475,7 +481,7 @@ class AnswerSynthesisService:
                 raw = self._invoke_model(query, prepared, answer_depth=profile.answer_depth, profile=profile, retry=retry)
                 normalized = self._normalize_result(raw, prepared, profile.answer_depth, profile.draft_strategy)
                 normalized = self._maybe_expand_answer(query, prepared, normalized, profile)
-                normalized = self._maybe_apply_demo_faults(normalized)
+                normalized = self._maybe_apply_demo_faults(query, prepared, normalized)
                 if not normalized.answer.strip() and not normalized.insufficient_context:
                     raise ValueError("Model returned an empty answer without insufficient_context=true.")
                 return SynthesisResultBundle(
